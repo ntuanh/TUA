@@ -62,6 +62,25 @@ Tips for typing a request:
 - End a line with `\` to continue on the next line.
 - For a long request, write it in a file and type `@path/to/file`.
 - To quit, press Enter on an empty line (or Ctrl+D).
+- Type `/web` to let the AI search the web (see below).
+
+The AI's full answer is printed when it finishes and saved as `result.md` in the task folder
+(`~/.local/state/tua/tasks/<ID>/`).
+
+### Let the AI search the web
+
+Web access is **off** by default, so a request like "find documentation on the internet" is
+answered from the AI's own knowledge, and the AI tells you web access is off. To turn it on:
+
+| How | Scope |
+|---|---|
+| type `/web` at the prompt (again to turn it off) | the rest of this `tua` session |
+| answer `y` when `tua` asks "Let the AI search the web for this request?" (it asks when a request mentions the internet, "online", or a URL) | that request |
+| `tua run "..." --project NAME --web` | that task |
+
+`tua status <ID>` shows `web access on` or `off` for every task. Turn it on only when you need
+it: web pages can contain instructions that try to mislead the AI, and anything it read in your
+project could leave in a web request.
 
 The sections below describe the same steps as separate commands, which give you more options
 (another model, Codex, timeouts).

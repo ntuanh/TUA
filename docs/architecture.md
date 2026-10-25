@@ -90,9 +90,10 @@ Any value the CLI does not supply reliably is `None` ("unknown"). A provider imp
 
 ## Data model
 
-All tables are created by migration 1. Migrations 2 to 4 add task columns: `review_of`
-(the task a review belongs to), `effort`, and `context_dir` / `start_dir` (the read-only
-surrounding folder and the focus subfolder set by `tua`).
+All tables are created by migration 1. Migrations 2 to 5 add task columns: `review_of`
+(the task a review belongs to), `effort`, `context_dir` / `start_dir` (the read-only
+surrounding folder and the focus subfolder set by `tua`), and `web` (whether web access was
+on).
 
 | Table | Contents |
 |---|---|

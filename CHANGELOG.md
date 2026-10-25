@@ -45,6 +45,13 @@ All notable changes to this project are documented here. The format follows
   - A project chosen inside a folder is remembered.
   - Home and system folders are never used as context.
   - Schema migration 4 records `context_dir` and `start_dir`.
+- Opt-in web access: `tua run --web`, `/web` in `tua`, or a yes/no question when a request
+  mentions the internet.
+  - Claude Code tasks get `WebSearch`/`WebFetch` only then.
+  - Codex tasks now always set `web_search` explicitly (`disabled` or `live`).
+  - Schema migration 5 records `tasks.web`, and `tua status` shows it.
+- `tua` prints the AI's full answer (up to 20,000 characters) instead of the first 800.
+- The provider prompt says how to list and search files with simple read-only commands.
 
 ### Added
 

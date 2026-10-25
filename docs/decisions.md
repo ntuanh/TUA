@@ -151,6 +151,30 @@ Verified with codex-cli 0.164.0 on a ChatGPT Go login. The user's default Codex 
   `workspace-write`) read a file outside its worktree by absolute path, while a Claude Code
   task was denied. This is documented, and TUA prints it at the start of every Codex task.
 
+## D21: Web access is opt-in per task
+
+Research requests ("find documentation on the internet") failed because `WebSearch` and
+`WebFetch` were always denied. Web access is now an explicit, recorded choice.
+
+- **Off by default.** It is turned on per task (`tua run --web`), per `tua` session (`/web`), or
+  by answering yes when `tua` sees a request that mentions the internet (default no).
+- **Claude Code:** the two tools move from the deny lists to the allow list. Nothing else
+  changes. **Codex:** `web_search` is now always set explicitly, `"disabled"` or `"live"`.
+  Before this, TUA left Codex's own default in place, which may enable a cached search. The
+  sandbox keeps commands offline either way.
+- **Recorded.** Schema migration 5 adds `tasks.web`; `tua status` shows it.
+- **Prompt notes.** The provider is told whether web access is on. When it is, the note says
+  to treat web content as untrusted and keep project content out of searches and URLs. When
+  it is off, the note says to tell the user how to turn it on.
+- **Live result.** With web on, Claude Code (Haiku) and Codex (`gpt-6-luna`) both looked up a
+  package version on PyPI. With web off, Claude Code reported that web access was off and
+  how to enable it.
+- **Listing files.** Claude Code 2.1.310 has no `Glob` or `Grep` tool; it lists and searches
+  through `Bash`. A live probe showed that `dontAsk` allows simple read-only commands (`ls`,
+  `find`, `grep`, `cat`) inside the working directories and denies them elsewhere. A
+  real task gave up after chaining commands, so the prompt now tells the provider to run
+  simple commands one at a time.
+
 ## D20: The start folder is readable context, not editable
 
 To behave like `claude`, TUA tells the provider where the user started.

@@ -17,7 +17,8 @@ controls. None of them is a complete sandbox, and this page says exactly what ea
 | No Codex bypass | `--dangerously-bypass-*`, `--approve-for-me`, and `danger-full-access` are refused by an argv guard | TUA code, tested |
 | Edits confined to the worktree | `Edit(//<worktree>/**)` is the only edit allow rule | Claude Code |
 | Command allowlist | `Bash(<prefix>)` rules from `commands.allow`; deny rules win | Claude Code |
-| No web tools | `WebFetch` and `WebSearch` denied in settings and with `--disallowedTools` | Claude Code |
+| No web tools unless the user asks | `WebFetch` and `WebSearch` denied in settings and with `--disallowedTools`; allowed only for a task started with `--web` or `/web` (recorded on the task) | Claude Code |
+| Codex web search explicit | `-c web_search="disabled"`, or `"live"` for a web task; commands stay offline | Codex |
 | Credential paths unreadable by file tools | `Read(~/.ssh/**)` and similar deny rules | Claude Code |
 | Repository settings cannot widen access | `--setting-sources user` skips the repository's `.claude/settings*.json`, including its hooks | Claude Code |
 | No MCP servers | `--strict-mcp-config` with no `--mcp-config` | Claude Code |
@@ -38,6 +39,10 @@ security boundary.
   other command form slips through.
 - **User-level settings still apply.** Your `~/.claude/settings.json` allow rules and hooks are
   loaded, because they are your own choices. TUA's deny rules still take precedence.
+- **Web access widens the attack surface.** A web task can read pages written to manipulate it
+  (prompt injection) and could put what it read into a search or URL. TUA tells the AI to treat
+  web content as untrusted and to keep project content out of requests; that is prompt text,
+  not a barrier. Web access is off by default and must be turned on per task or session.
 - **No OS isolation for Claude Code tasks.** There are no containers, namespaces, or network
   filtering. Run TUA only on repositories whose code you are willing to execute.
 - **Codex's sandbox has its own limits.** It does not restrict reads: a live test showed a

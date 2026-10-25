@@ -13,6 +13,7 @@ pushed for you.
 ~/code/myapp$ tua
 
 TUA · myapp · claude-code (sonnet)
+Web access: off (type /web to turn it on).
 Describe what you want, like you would to a colleague: what, where, and how to
 check it. End a line with \ to continue it; type @file to send a file's text.
 
@@ -65,9 +66,12 @@ Changes: 2 files changed, 38 insertions(+), 3 deletions(-)
   one squash commit made with your own Git identity. It refuses if your branch moved, is dirty,
   or is a different branch. Nothing is pushed.
 - **Fail-closed permissions.** Claude Code runs with `--permission-mode dontAsk` and generated
-  allow/deny rules: edits only inside the copy, shell commands only from your allowlist, no web
-  tools, no MCP servers. Codex runs in its OS sandbox with the network off.
+  allow/deny rules: edits only inside the copy, shell commands only from your allowlist, no MCP
+  servers. Codex runs in its OS sandbox with the network off for commands.
   `--dangerously-skip-permissions` is never used.
+- **Web access only when you ask.** Web search and page fetching are off by default. Turn them on
+  for one task (`tua run --web`), for a session (type `/web` in `tua`), or answer yes when `tua`
+  notices a request that mentions the internet. Each task records whether it had web access.
 - **Secrets stay out.** TUA never reads credential files, refuses prompts that contain
   recognizable secrets, never offers secret-like files for commit, and redacts logs on a
   best-effort basis.
@@ -80,6 +84,8 @@ Changes: 2 files changed, 38 insertions(+), 3 deletions(-)
   review a change as a recorded, read-only task.
 - **Read-only tasks.** `--profile read-only` lets the AI read and explain code without editing
   anything or running commands.
+- **Research with sources.** With web access on, the AI can look up documentation, papers, and
+  repositories and combine them with your code and the folder around it.
 
 ### Reproducible and measurable
 
@@ -128,7 +134,8 @@ In more detail, `tua` (or `tua run`) does this for every task:
    never a credential.
 6. **Creates the copy** with `git worktree add` and verifies it starts at the recorded commit.
 7. **Runs the AI CLI headless** in the copy, with the prompt on stdin, inside its own process
-   group with a timeout. Ctrl+C stops it cleanly.
+   group with a timeout. Ctrl+C stops it cleanly. Short `[TUA]` notes before your request tell
+   the AI where you started, whether web access is on, and how to list files.
 8. **Records the outcome** (`completed`, `failed`, `timeout`, or `cancelled`) with a normalized
    error type, the model actually reported, turns, usage, and any denied tool calls.
 9. **Waits for your decision.** A merge snapshots the copy, shows the diff, checks again that
@@ -258,7 +265,9 @@ trust them before using them.
 
 ### 4. Every run after that
 
-`tua` goes straight to the prompt. Type a request, press Enter, wait, then choose:
+`tua` goes straight to the prompt. Type a request and press Enter. When the AI finishes, you
+see its full answer (also saved as `result.md` in the task folder) and a change summary. Then
+choose:
 
 | Key | Action |
 |---|---|
@@ -291,6 +300,23 @@ check it**.
 - For a long request, put it in a file and type `@path/to/request.md`.
 - The AI can run your tests only if you allowed the command (step 3, or
   [Let the AI run commands](#7-let-the-ai-run-commands)).
+
+**Research on the internet.** Web access is off unless you turn it on:
+
+```text
+> /web
+Web access is on for this session: the AI can search the web and
+open pages. Web pages can try to mislead the AI, ... Type /web again to turn it off.
+
+> Summarize the docs and source in this folder, then search the web for public ISP
+  (image signal processing) pipeline designs. Explain the order and purpose of each
+  block (black level, demosaic, 3A, white balance, ...) for a solution architect.
+```
+
+If you forget, `tua` notices words like "internet", "online", or a URL and asks
+`Let the AI search the web for this request? [y/N]`. From a script, use `tua run ... --web`.
+Only turn it on when you need it: web pages can contain instructions that try to mislead the
+AI, and anything it read in your project could leave in a web request.
 
 ### 6. Choosing a model and provider
 
@@ -373,12 +399,12 @@ The full guide, with more examples: [docs/user-guide.md](docs/user-guide.md).
 
 | Command | Purpose |
 |---|---|
-| `tua` | Interactive session in the current folder: setup on first use, then prompt, run, review, merge |
+| `tua` | Interactive session in the current folder: setup on first use, then prompt, run, review, merge. Type `/web` to toggle web access. |
 | `tua --version`, `tua --help` | Version and help (`tua <command> --help` for each command) |
 | `tua doctor` | Diagnose Python, Git, Claude Code (version, flags, login), Codex, local state, projects |
 | `tua project init <PATH> --name <NAME> [--allow CMD ...]` | Create `.tua/project.yaml` if missing (never overwrites), validate, register or re-approve |
 | `tua project list` / `tua project show <NAME>` | List projects; show config, skills, hashes, permission rules |
-| `tua run "<PROMPT>" --project <NAME> [--provider P] [--model M] [--effort E] [--timeout S] [--max-turns N] [--profile read-only]` | Run one task (`--profile` can only narrow the project's permissions) |
+| `tua run "<PROMPT>" --project <NAME> [--provider P] [--model M] [--effort E] [--timeout S] [--max-turns N] [--profile read-only] [--web]` | Run one task (`--profile` can only narrow the project's permissions; `--web` allows web search) |
 | `tua review <TASK_ID> [--provider P] [--model M] [--effort E] [--focus TEXT]` | Have a model review a task's changes, as a recorded read-only task |
 | `tua status [TASK_ID] [--project NAME] [--limit N]` | List tasks, or show one with its event log and reviews |
 | `tua diff <TASK_ID> [--stat]` | Changes against the base commit (works for failed tasks too) |
@@ -430,19 +456,25 @@ must be approved again before the next task. Details and examples:
 - **Claude Code** tasks get a generated settings file loaded with `--setting-sources user`, so
   project and local settings from the repository (hooks, allow rules) cannot widen access. MCP
   servers are off (`--strict-mcp-config`). Critical denies are repeated with `--disallowedTools`.
+  `WebSearch` and `WebFetch` are denied unless web access is on for the task.
   Claude Code tasks cannot read outside the copy, except a read-only surrounding folder that
   `tua` set up when you started it there.
 - **Claude Code permissions are not an OS sandbox.** An allowlisted command such as a test
   runner can run any code from the repository.
 - **Codex** tasks use Codex's OS sandbox: `safe` maps to `workspace-write` (writes only to the
   copy and `/tmp`, no network) and `read-only` to `read-only`. Codex has no per-command
-  allowlist. **The Codex sandbox does not restrict reads:** a Codex task can read any file your
+  allowlist. Its web search is set explicitly (`web_search="disabled"`, or `"live"` with web
+  access on). **The Codex sandbox does not restrict reads:** a Codex task can read any file your
   user can, and its conversation goes to the provider. TUA warns about this on every Codex task.
   Use Claude Code for sensitive machines.
 - TUA never reads credential files and reads only the `loggedIn` flag from
   `claude auth status` (for Codex, only the exit status and leading words of
   `codex login status`). It refuses prompts that
   contain recognizable secrets and redacts known secret formats in logs on a best-effort basis.
+- **Web access is an explicit choice.** With it on, web pages can carry prompt injection, and
+  anything the AI read could be sent out in a search or URL. TUA tells the AI to treat web
+  content as untrusted and to keep project content out of requests, but that is a prompt, not a
+  barrier.
 - Run TUA only on code you are willing to execute.
 
 Full details: [docs/security.md](docs/security.md).
