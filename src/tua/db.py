@@ -27,7 +27,7 @@ from tua.models import (
 )
 from tua.paths import create_private_file, ensure_private_dir
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _STATUSES = ", ".join(f"'{s.value}'" for s in TaskStatus)
 _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
@@ -265,11 +265,15 @@ _MIGRATION_4 = [
     "ALTER TABLE tasks ADD COLUMN start_dir TEXT",
 ]
 
+# v5: whether the provider was allowed to search the web.
+_MIGRATION_5 = ["ALTER TABLE tasks ADD COLUMN web INTEGER NOT NULL DEFAULT 0 CHECK (web IN (0, 1))"]
+
 MIGRATIONS: dict[int, list[str]] = {
     1: _MIGRATION_1,
     2: _MIGRATION_2,
     3: _MIGRATION_3,
     4: _MIGRATION_4,
+    5: _MIGRATION_5,
 }
 
 _CORRUPT_HINT = (

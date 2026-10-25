@@ -1,9 +1,10 @@
 """Permission profiles: translate a named profile into Claude Code permission settings.
 
 These are Claude Code *tool permission* rules, not an operating-system sandbox. They stop
-the provider's built-in tools from editing outside the worktree, using the network tools,
-or running commands that are not allowlisted, but an allowlisted command (for example a
-test runner) can still execute arbitrary code from the repository.
+the provider's built-in tools from editing outside the worktree, using the web tools
+(unless the user allowed them for the task), or running commands that are not allowlisted,
+but an allowlisted command (for example a test runner) can still execute arbitrary code from
+the repository.
 """
 
 from __future__ import annotations
@@ -87,10 +88,12 @@ def build_plan(
     commands: CommandPolicy,
     paths: TuaPaths,
     context_dir: Path | None = None,
+    web: bool = False,
 ) -> PermissionPlan:
     """Build the allow/deny rules for ``profile`` scoped to the task ``worktree``.
 
     ``context_dir`` (where the user started TUA) becomes readable but never editable.
+    ``web`` allows the web search and fetch tools, which are otherwise denied.
     """
     worktree = worktree.resolve()
     always_deny = [rule for prefix in ALWAYS_DENIED_COMMANDS for rule in bash_rules(prefix)]
@@ -101,8 +104,9 @@ def build_plan(
         for tool in ("Read", "Edit")
         for sub in ("/tua.db*", "/tasks/**", "/logs/**", "/evals/**")
     ]
-    deny = [*NETWORK_TOOLS, *always_deny, *sensitive, *private_state]
-    allow = [_abs_rule("Read", worktree, "/**")]
+    network_deny: tuple[str, ...] = () if web else NETWORK_TOOLS
+    deny = [*network_deny, *always_deny, *sensitive, *private_state]
+    allow = [_abs_rule("Read", worktree, "/**"), *(NETWORK_TOOLS if web else ())]
     if context_dir is not None:
         context = context_dir.resolve()
         allow.append(_abs_rule("Read", context, "/**"))
@@ -124,7 +128,7 @@ def build_plan(
         permission_mode="dontAsk",
         allow=tuple(dict.fromkeys(allow)),
         deny=tuple(dict.fromkeys(deny)),
-        cli_deny=(*NETWORK_TOOLS, *always_deny),
+        cli_deny=(*network_deny, *always_deny),
     )
 
 

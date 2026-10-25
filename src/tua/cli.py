@@ -216,6 +216,7 @@ def cmd_run(app: App, args: argparse.Namespace) -> int:
             permission_profile=args.profile,
             provider=args.provider,
             effort=args.effort,
+            web=args.web,
         ),
     )
     out()
@@ -344,6 +345,7 @@ def _print_task_detail(app: App, service: TaskService, task: Task) -> None:
         ("reported models", ", ".join(task.actual_models) if task.actual_models else "unknown"),
         ("effort", task.effort or "CLI default"),
         ("permission profile", task.permission_profile),
+        ("web access", "on" if task.web else "off"),
         ("source_skill_hash", task.source_skill_hash or "unknown"),
         ("compiled_skill_hash", task.compiled_skill_hash or "unknown"),
         ("timeout", f"{task.timeout_seconds}s"),
@@ -560,6 +562,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--profile",
         choices=["safe", "read-only"],
         help="permission profile for this task; may only narrow the project's profile",
+    )
+    p.add_argument(
+        "--web",
+        action="store_true",
+        help="let the AI search the web and open pages (off by default; pages can try to "
+        "mislead it, and what it reads could leave in a web request)",
     )
     _provider_options(p)
     p.set_defaults(handler=cmd_run)

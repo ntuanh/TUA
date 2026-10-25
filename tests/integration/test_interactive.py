@@ -198,7 +198,8 @@ def test_multiline_and_file_prompts(
     request.write_text("Create hello.txt\nfrom a file\n")
     script = Script("first line \\", "second line", "", f"@{request}", "", "")
     assert session(db, paths, service, script).run(repo) == 0
-    prompts = [c["prompt"] for c in fake_claude.calls() if c["prompt"]]
+    # TUA's notes come first, separated by a blank line.
+    prompts = [str(c["prompt"]).split("\n\n", 1)[1] for c in fake_claude.calls() if c["prompt"]]
     assert prompts == ["first line \nsecond line", "Create hello.txt\nfrom a file\n"]
 
 

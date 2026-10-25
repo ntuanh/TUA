@@ -58,7 +58,10 @@ def test_successful_task(
     assert len(calls) == 1
     call = calls[0]
     assert Path(call["cwd"]) == worktree  # provider ran in the task worktree
-    assert call["prompt"] == "Create hello.txt"  # via stdin, not argv
+    # Via stdin, not argv, after TUA's notes about the environment.
+    assert str(call["prompt"]).startswith("[TUA] ")
+    assert str(call["prompt"]).endswith("\n\nCreate hello.txt")
+    assert "Web access is off" in str(call["prompt"])
     assert "Create hello.txt" not in call["argv"]
     assert call["append_sha256"] == task.compiled_skill_hash  # exact fingerprinted payload
     assert not call["env_has_claudecode"]

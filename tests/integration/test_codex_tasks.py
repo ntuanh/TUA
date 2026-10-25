@@ -53,7 +53,9 @@ def test_codex_task_completes_in_its_worktree(
     assert Path(str(call["cwd"])) == worktree
     assert call["sandbox"] == "workspace-write"
     assert call["instructions_sha256"] == task.compiled_skill_hash  # exact payload
-    assert call["prompt"] == "Create hello.txt"
+    assert str(call["prompt"]).endswith("\n\nCreate hello.txt")
+    assert "list or search files" not in str(call["prompt"])  # a Claude Code tip only
+    assert call["config"]["web_search"] == '"disabled"'
     assert not call["env_has_claudecode"]
     result = (paths.task_dir(task.id) / "result.md").read_text()
     assert result == "Done."

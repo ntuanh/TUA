@@ -39,6 +39,17 @@ Ask = Callable[[str], str]
 Say = Callable[[str], None]
 
 _SLUG_INVALID = re.compile(r"[^a-z0-9._-]+")
+# Requests that probably need the internet; TUA then asks before turning web access on.
+_WEB_HINT = re.compile(
+    r"\b(internet|online|the web|web search|search the web|google|browse)\b|https?://",
+    re.IGNORECASE,
+)
+WEB_WARNING = (
+    "Web pages can try to mislead the AI, and anything it reads in your project could leave "
+    "in a web request."
+)
+# Longer answers are cut on screen; the full text stays in the task's result.md.
+MAX_SHOWN_CHARS = 20_000
 
 
 def project_name_for(root: Path, taken: set[str]) -> str:
@@ -102,6 +113,8 @@ class Session:
         # Where the user started TUA, like `claude` in its working folder.
         self.context_dir: Path | None = None
         self.start_dir: str | None = None
+        # Web access for this session, turned on with /web.
+        self.web = False
 
     def yes(self, question: str, *, default: bool) -> bool:
         hint = "[Y/n]" if default else "[y/N]"
@@ -138,6 +151,7 @@ class Session:
             self.say(f"everything in {self.context_dir}.")
         if self.start_dir:
             self.say(f"Focus: {self.start_dir}/")
+        self.say("Web access: off (type /web to turn it on).")
         self.say("Describe what you want, like you would to a colleague: what, where, and how to")
         self.say("check it. End a line with \\ to continue it; type @file to send a file's text.")
         while True:
@@ -296,6 +310,14 @@ class Session:
             line = line[:-1] + "\n" + self.ask("... ")
         if not line.strip():
             return None
+        if line.strip().lower() == "/web":
+            self.web = not self.web
+            if self.web:
+                self.say("Web access is on for this session: the AI can search the web and")
+                self.say("open pages. " + WEB_WARNING + " Type /web again to turn it off.")
+            else:
+                self.say("Web access is off.")
+            return self.read_prompt()
         if line.startswith("@"):
             path = Path(line[1:].strip()).expanduser()
             try:
@@ -309,15 +331,32 @@ class Session:
             return text
         return line
 
-    def start(self, project: Project, prompt: str, *, retry: bool = True) -> Task | None:
+    def wants_web(self, prompt: str) -> bool:
+        if self.web:
+            return True
+        if not _WEB_HINT.search(prompt):
+            return False
+        self.say("This request mentions the internet, but web access is off. " + WEB_WARNING)
+        return self.yes("Let the AI search the web for this request?", default=False)
+
+    def start(
+        self, project: Project, prompt: str, *, retry: bool = True, web: bool | None = None
+    ) -> Task | None:
+        if web is None:
+            web = self.wants_web(prompt)
         try:
             task = self.tasks.run(
                 project.name,
-                RunOptions(prompt=prompt, context_dir=self.context_dir, start_dir=self.start_dir),
+                RunOptions(
+                    prompt=prompt,
+                    context_dir=self.context_dir,
+                    start_dir=self.start_dir,
+                    web=web,
+                ),
             )
         except DirtyRepositoryError:
             if retry and self.tidy_up(Repository(Path(project.root_path))):
-                return self.start(project, prompt, retry=False)
+                return self.start(project, prompt, retry=False, web=web)
             self.say("Nothing was started. Your files are untouched.")
             return None
         except TuaError as exc:
@@ -386,15 +425,28 @@ class Session:
             self.say(f"\n✗ {task.status.value}{took}: {task.error_message}")
             if task.error_type == "rate_limited":
                 self.say("You reached your plan's limit. Wait for it to reset, then try again.")
-        if task.result_excerpt:
-            text = task.result_excerpt
-            self.say(text if len(text) <= 800 else text[:800] + " …")
+        text = self.answer(task)
+        if text:
+            self.say(text)
         if Path(task.worktree_path).is_dir():
             try:
                 stat = task_diff(task, self.paths).stat.strip()
             except TuaError:
                 stat = ""
             self.say("Changes: " + (stat.splitlines()[-1].strip() if stat else "none"))
+
+    def answer(self, task: Task) -> str | None:
+        """The AI's full answer (saved, redacted, as result.md), or else the stored excerpt."""
+        path = self.paths.task_dir(task.id) / "result.md"
+        try:
+            text = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return task.result_excerpt
+        if len(text) > MAX_SHOWN_CHARS:
+            return text[:MAX_SHOWN_CHARS] + f" …\n(The full answer is in {path})"
+        if text.count("\n") >= 40:
+            return text + f"\n(Saved in {path})"
+        return text
 
     def next_step(self, task: Task) -> None:
         completed = task.status is TaskStatus.COMPLETED

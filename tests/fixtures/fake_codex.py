@@ -36,7 +36,9 @@ KNOWN_KEYS = {
     "sandbox_workspace_write.network_access",
     "developer_instructions",
     "model_reasoning_effort",
+    "web_search",
 }
+WEB_SEARCH_MODES = {'"disabled"', '"cached"', '"indexed"', '"live"'}
 
 
 def control():
@@ -99,6 +101,12 @@ def main():
             sys.stderr.write(
                 f"Error loading config.toml: unknown configuration field `{key}` "
                 "in -c/--config override\n"
+            )
+            sys.exit(1)
+        if key == "web_search" and value not in WEB_SEARCH_MODES:
+            sys.stderr.write(
+                "Error loading config.toml: unknown variant, expected one of `disabled`, "
+                "`cached`, `indexed`, `live`\nin `web_search`\n"
             )
             sys.exit(1)
         config[key] = value

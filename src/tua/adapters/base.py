@@ -29,6 +29,8 @@ class AdapterRequest:
     effort: str | None = None
     # Extra folder the provider may read (never edit), e.g. where the user started TUA.
     context_dir: Path | None = None
+    # Allow the provider's web search and fetch tools (off unless the user turns it on).
+    web: bool = False
 
 
 @dataclass(frozen=True)

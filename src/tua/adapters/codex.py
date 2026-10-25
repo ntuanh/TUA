@@ -14,6 +14,9 @@ Code adapter, all deliberate:
   command can do instead.
 * ``--ignore-user-config`` and ``--ignore-rules`` keep user/project Codex configuration
   and exec rules out of the task, and ``--strict-config`` makes unknown keys fatal.
+* Web search is set explicitly: ``web_search="disabled"``, or ``"live"`` for a task the user
+  allowed to use the web. The search runs on the provider's side; the sandbox still blocks
+  network access for commands.
 
 As with Claude Code, the exact argv is preflighted with no prompt (stdin is /dev/null):
 Codex then stops with ``No prompt provided via stdin.`` before contacting any service.
@@ -244,6 +247,9 @@ class CodexAdapter:
             'approval_policy="never"',
             "-c",
             "sandbox_workspace_write.network_access=false",
+            "-c",
+            # Set explicitly: Codex's own default may enable a (cached) web search.
+            f'web_search="{"live" if request.web else "disabled"}"',
             "-c",
             "developer_instructions=" + toml_string(payload.decode("utf-8")),
         ]

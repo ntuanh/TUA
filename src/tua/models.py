@@ -134,6 +134,7 @@ class Task:
     effort: str | None
     context_dir: str | None
     start_dir: str | None
+    web: bool
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> Task:
@@ -141,6 +142,7 @@ class Task:
         data["status"] = TaskStatus(data["status"])
         models = data.get("actual_models")
         data["actual_models"] = tuple(json.loads(models)) if models else None
+        data["web"] = bool(data["web"])
         return cls(**data)
 
 
