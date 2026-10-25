@@ -45,7 +45,7 @@ _AUTH_RE = re.compile(
 )
 _RATE_RE = re.compile(
     r"(?i)(rate_limit_error|api error: 429|usage limit reached|too many requests|"
-    r"credit balance is too low)"
+    r"credit balance is too low|out of usage credits)"
 )
 
 
@@ -390,6 +390,8 @@ def normalize(
         or ErrorType.PROVIDER_ERROR
     )
     subtype = payload.get("subtype") if isinstance(payload.get("subtype"), str) else "error"
+    if subtype == "success":  # the CLI pairs subtype "success" with is_error=true on API errors
+        subtype = "an error"
     reason = payload.get("terminal_reason")
     reason_text = f", {reason}" if isinstance(reason, str) else ""
     return AdapterResult(

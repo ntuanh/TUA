@@ -1,7 +1,8 @@
 """Opt-in smoke test against the real Claude Code CLI. It uses account quota.
 
 Run with:  TUA_LIVE_CLAUDE=1 python -m pytest tests/live -v -s
-Optional:  TUA_LIVE_MODEL=<alias> (default: haiku)
+Optional:  TUA_LIVE_MODELS=haiku,sonnet,opus  (comma-separated aliases; default: haiku)
+           Each model runs one small task.
 
 It proves three things the fake CLI cannot:
 1. the compiled skill payload reaches the model (a random marker exists only there);
@@ -46,7 +47,13 @@ Then reply with one short sentence saying which steps succeeded.
 """
 
 
-def test_live_headless_task(tmp_path: Path, db: Database, paths: TuaPaths) -> None:
+LIVE_MODELS = [
+    m.strip() for m in os.environ.get("TUA_LIVE_MODELS", "haiku").split(",") if m.strip()
+]
+
+
+@pytest.mark.parametrize("model", LIVE_MODELS)
+def test_live_headless_task(tmp_path: Path, db: Database, paths: TuaPaths, model: str) -> None:
     marker = f"TUA-SMOKE-{secrets.token_hex(6)}"
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -56,7 +63,6 @@ def test_live_headless_task(tmp_path: Path, db: Database, paths: TuaPaths) -> No
     git(repo, "commit", "-q", "-m", "init")
 
     init_project(db, paths, repo, "live")
-    model = os.environ.get("TUA_LIVE_MODEL", "haiku")
     config = repo / ".tua" / "project.yaml"
     text = config.read_text()
     text = text.replace("# default_model: sonnet", f"default_model: {model}")

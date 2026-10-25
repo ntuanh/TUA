@@ -27,7 +27,7 @@ scripts/dev-check.sh        # format check, lint, type check, tests, build
   It is skipped unless you opt in:
 
   ```bash
-  TUA_LIVE_CLAUDE=1 python -m pytest tests/live -v -s   # optional: TUA_LIVE_MODEL=haiku
+  TUA_LIVE_CLAUDE=1 TUA_LIVE_MODELS=haiku,sonnet python -m pytest tests/live -v -s
   ```
 
 - Add a failing test with every bug fix, and cover failure paths, not only the happy path. Never

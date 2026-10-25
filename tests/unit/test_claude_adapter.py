@@ -172,6 +172,7 @@ def test_is_error_is_never_reported_as_success() -> None:
         ("Invalid API key · Please run /login", ErrorType.UNAUTHENTICATED),
         ("OAuth token has expired", ErrorType.UNAUTHENTICATED),
         ("Claude AI usage limit reached|1700000000", ErrorType.RATE_LIMITED),
+        ("You're out of usage credits. Switch to another model", ErrorType.RATE_LIMITED),
         ('API Error: 429 {"type":"rate_limit_error"}', ErrorType.RATE_LIMITED),
         ("I implemented rate limiting for the API.", None),
         ("Could not finish", None),
@@ -205,6 +206,11 @@ def test_auth_and_rate_limit_results() -> None:
         outcome(result_json(is_error=True, result="Claude AI usage limit reached|1"), code=1)
     )
     assert rate.error_type is ErrorType.RATE_LIMITED
+    assert "reported an error" in (rate.error_message or "")
+    credits = norm(
+        outcome(result_json(is_error=True, result="You're out of usage credits."), code=1)
+    )
+    assert credits.error_type is ErrorType.RATE_LIMITED
 
 
 def test_invalid_and_missing_output() -> None:

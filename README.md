@@ -33,7 +33,7 @@ diff and explicitly merge or discard it. Nothing is ever pushed.
 
 - Linux (primary target; macOS should mostly work but is untested), Python 3.10+, Git 2.25+.
 - Claude Code CLI on `PATH` and logged in (`claude auth login`). TUA was verified with
-  Claude Code 2.1.301 and checks the exact flags it needs before every task.
+  Claude Code 2.1.301 and 2.1.310 and checks the exact flags it needs before every task.
 
 ## Installation
 
