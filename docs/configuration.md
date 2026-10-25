@@ -12,8 +12,8 @@ that point outside the root are rejected, and so are unknown keys.
 | `name` | required | 1-64 characters: `a-z`, `0-9`, `.`, `_`, `-`. Must match `--name`. |
 | `repository` | `"."` | Must be `"."` in v0.1. |
 | `default_provider` | `claude-code` | `claude-code` or `codex`. `tua run --provider` overrides it for one task. |
-| `default_model` | CLI default | Passed to `claude --model` (for example `sonnet`) or `codex --model` (for example `gpt-6-luna`). `tua run --model` overrides it. |
-| `effort` | CLI default | Reasoning effort. Claude Code: `low`, `medium`, `high`, `xhigh`, `max`. Codex: `minimal`, `low`, `medium`, `high`, `xhigh`. TUA validates it because neither CLI rejects unknown values. `tua run --effort` overrides it. |
+| `default_model` | CLI default | Passed to `claude --model` (for example `sonnet`) or `codex --model` (for example `gpt-6-luna`). It belongs to `default_provider`: a task or review run with another provider (`--provider`) gets that CLI's default model instead, and TUA prints a note. `tua run --model` overrides it for any provider. |
+| `effort` | CLI default | Reasoning effort. Claude Code: `low`, `medium`, `high`, `xhigh`, `max`. Codex: `minimal`, `low`, `medium`, `high`, `xhigh`. TUA validates it because neither CLI rejects unknown values. Like `default_model`, it applies only to `default_provider`. `tua run --effort` overrides it. |
 | `timeout_seconds` | `1800` | Wall-clock limit per task (1 to 86400). `tua run --timeout` overrides it. |
 | `max_turns` | CLI default | Passed to `claude --max-turns` (1 to 1000). Codex has no equivalent. |
 | `permission_profile` | `safe` | `safe` or `read-only` (see below). |

@@ -233,6 +233,11 @@ default_model: gpt-6-luna
 effort: medium
 ```
 
+A project's `default_model` and `effort` are used only with its own `default_provider`. When
+you switch provider for one task (`--provider codex` in a Claude Code project, or the reverse),
+TUA leaves them out, so that CLI uses its own default, and prints a note. Pass `--model` to
+choose one.
+
 Codex keeps tasks safe with its own sandbox. The AI can run any command, but it can only write
 inside the task folder (and `/tmp`) and has no network. Your `commands.allow` list is not used
 for Codex.

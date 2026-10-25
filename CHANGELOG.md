@@ -4,7 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-10-25
+
+First tagged release.
+
+### Fixed
+
+- A project's `default_model` was passed to whichever provider ran the task. In a Claude Code
+  project with `default_model: sonnet`, `tua run --provider codex` and
+  `tua review --provider codex` sent `--model sonnet` to Codex, which rejects it ("The 'sonnet'
+  model is not supported when using Codex with a ChatGPT account"). `default_model`, like
+  `effort`, now applies only to the project's own `default_provider`. Another provider gets
+  its CLI default unless `--model` is given, and TUA prints a note when a project setting is
+  left out.
 
 ### Added after the first real-use test run
 
@@ -79,4 +91,4 @@ All notable changes to this project are documented here. The format follows
 - Eval runner: allowlist-validated commands, run-count and wall-clock budgets, pinned
   baselines, candidate comparison.
 - Best-effort secret redaction, and refusal of prompts that contain recognizable secrets.
-- Documentation, CI workflow, `scripts/dev-check.sh`, and an opt-in live smoke test.
+- Documentation, `scripts/dev-check.sh`, and an opt-in live smoke test.

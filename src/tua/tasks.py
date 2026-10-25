@@ -199,13 +199,31 @@ class TaskService:
             repo.resolve_commit(options.base_commit) if options.base_commit else repo.head_commit()
         )
         timeout = options.timeout_seconds or config.timeout_seconds
-        model = options.model or config.default_model
         max_turns = options.max_turns or config.max_turns
         profile = narrow_profile(config.permission_profile, options.permission_profile)
         provider = check_provider(options.provider or config.default_provider)
-        # The project's effort level applies only to the project's own provider.
-        default_effort = config.effort if provider == config.default_provider else None
+        # The project's default model and effort level belong to the project's own
+        # provider. Another provider gets only what the user passes explicitly, otherwise
+        # its CLI default, because model names are provider-specific.
+        own_provider = provider == config.default_provider
+        model = options.model or (config.default_model if own_provider else None)
+        default_effort = config.effort if own_provider else None
         effort = check_effort(provider, options.effort or default_effort)
+        skipped = [
+            (f"{key} {value!r}", flag)
+            for key, value, explicit, flag in (
+                ("default_model", config.default_model, options.model, "--model"),
+                ("effort", config.effort, options.effort, "--effort"),
+            )
+            if value and not own_provider and not explicit
+        ]
+        if skipped:
+            self.on_progress(
+                f"Note: the project's {' and '.join(s for s, _ in skipped)} "
+                f"{'is' if len(skipped) == 1 else 'are'} for {config.default_provider}, so "
+                f"{provider} uses its CLI default (pass {' or '.join(f for _, f in skipped)} "
+                "to choose)."
+            )
         config = dataclasses.replace(
             config, permission_profile=profile, default_provider=provider, effort=effort
         )
