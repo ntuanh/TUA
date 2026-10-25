@@ -17,6 +17,16 @@ from pathlib import Path
 from tua.config import CommandPolicy, load_project_config, project_config_path
 from tua.db import Database
 from tua.errors import DirtyRepositoryError, RepositoryError, TuaError
+from tua.gitsetup import (
+    LARGE_FILE_BYTES,
+    add_local_excludes,
+    create_repo,
+    find_child_repos,
+    ignore_patterns_for,
+    looks_secret,
+    plan_new_repo,
+    unsafe_location,
+)
 from tua.models import Project, Task, TaskStatus
 from tua.paths import TuaPaths
 from tua.peer_review import run_review
@@ -101,19 +111,18 @@ class Session:
 
     def run(self, cwd: Path) -> int:
         try:
-            repo = Repository.open(cwd, require_toplevel=False)
-        except RepositoryError:
-            self.say(
-                "This folder is not a Git project. TUA works on Git projects so it can keep "
-                "your files safe.\nCreate one first, then run `tua` again:\n"
-                "  git init && git add . && git commit -m 'Initial commit'"
-            )
-            return 1
-        try:
+            repo = self.find_repo(cwd)
+            if repo is None:
+                return 1
             project = self.project_for(repo)
         except (EOFError, KeyboardInterrupt):
             self.say("")
             return 0
+        except TuaError as exc:
+            self.say(f"Could not set up TUA: {exc.message}")
+            if exc.hint:
+                self.say(f"Hint: {exc.hint}")
+            return 1
         if project is None:
             return 1
         _, config = load_registered(self.db, project.name)
@@ -138,6 +147,67 @@ class Session:
                     return 0
 
     # ----------------------------------------------------------------------- set up
+
+    def find_repo(self, cwd: Path) -> Repository | None:
+        """The Git project to work on: this folder's, one inside it, or a new one."""
+        try:
+            return Repository.open(cwd, require_toplevel=False)
+        except RepositoryError:
+            pass
+        children = find_child_repos(cwd)
+        if len(children) == 1:
+            rel = children[0].relative_to(cwd).as_posix()
+            if self.yes(
+                f"This folder isn't a Git project, but it contains one: {rel}/. Use it?",
+                default=True,
+            ):
+                return Repository.open(children[0])
+        elif children:
+            self.say("This folder isn't a Git project, but it contains these:")
+            for number, child in enumerate(children, 1):
+                self.say(f"  [{number}] {child.relative_to(cwd).as_posix()}/")
+            answer = self.ask("Which one should TUA use? (number, or Enter for none) ").strip()
+            if answer.isdigit() and 1 <= int(answer) <= len(children):
+                return Repository.open(children[int(answer) - 1])
+        return self.offer_new_repo(cwd)
+
+    def offer_new_repo(self, folder: Path) -> Repository | None:
+        reason = unsafe_location(folder)
+        if reason:
+            self.say(
+                "This folder isn't a Git project, and TUA won't create one here because "
+                f"{reason}. Open a terminal in a project folder and run `tua` there."
+            )
+            return None
+        plan = plan_new_repo(folder)
+        size = plan.total_bytes / (1024 * 1024)
+        self.say("This folder isn't a Git project yet. TUA needs Git to work on a safe copy and")
+        self.say(
+            f"to let you undo anything. It would save {len(plan.files)} files ({size:.1f} MB) "
+            "in a first commit."
+        )
+        for label, items in (
+            ("left out, larger than 50 MB", plan.large_files),
+            ("left out, look like secrets", plan.secret_files),
+            ("left out, separate Git projects", plan.nested_repos),
+        ):
+            if items:
+                more = f" and {len(items) - 5} more" if len(items) > 5 else ""
+                self.say(f"  {label}: {', '.join(items[:5])}{more}")
+        if plan.too_big:
+            self.say(
+                "That is too much to add automatically. Create the repository yourself with a "
+                ".gitignore for generated and large files, then run `tua` again."
+            )
+            return None
+        if not plan.files:
+            self.say("There are no files to save here.")
+            return None
+        if not self.yes("Make this folder a Git project now?", default=True):
+            return None
+        repo = create_repo(plan)
+        self.say("✓ Created a Git project with a first commit (left-out files are in .gitignore).")
+        return repo
 
     def project_for(self, repo: Repository) -> Project | None:
         root = repo.root
@@ -180,14 +250,7 @@ class Session:
             run_git(["commit", "-q", "-m", "Add TUA config", "--", ".tua"], cwd=root)
             self.say("Committed .tua/ (only that folder).")
         else:
-            exclude = repo.common_dir() / "info" / "exclude"
-            exclude.parent.mkdir(parents=True, exist_ok=True)
-            existing = exclude.read_text() if exclude.exists() else ""
-            if ".tua/" not in existing.split():
-                with exclude.open("a") as handle:
-                    handle.write(
-                        ("" if existing.endswith("\n") or not existing else "\n") + ".tua/\n"
-                    )
+            add_local_excludes(repo, ["/.tua/"])
             self.say("Keeping .tua/ on this laptop only (listed in .git/info/exclude).")
         self.say(f'✓ TUA is ready for "{result.project.name}".')
         return result.project
@@ -226,15 +289,13 @@ class Session:
             return text
         return line
 
-    def start(self, project: Project, prompt: str) -> Task | None:
+    def start(self, project: Project, prompt: str, *, retry: bool = True) -> Task | None:
         try:
             task = self.tasks.run(project.name, RunOptions(prompt=prompt))
-        except DirtyRepositoryError as exc:
-            self.say(f"\n{exc.message}")
-            self.say(
-                "Commit your own changes first (for example: git add -A && git commit -m "
-                "'wip'), then ask again. TUA never touches them."
-            )
+        except DirtyRepositoryError:
+            if retry and self.tidy_up(Repository(Path(project.root_path))):
+                return self.start(project, prompt, retry=False)
+            self.say("Nothing was started. Your files are untouched.")
             return None
         except TuaError as exc:
             self.say(f"\nCould not start: {exc.message}")
@@ -243,6 +304,56 @@ class Session:
             return None
         self.summarize(task)
         return task
+
+    def tidy_up(self, repo: Repository) -> bool:
+        """Offer to commit or hide uncommitted files so a task can start. True if done."""
+        entries = repo.status()
+        if not entries:
+            return True
+        untracked = [e.path for e in entries if e.code == "??"]
+        modified = [e for e in entries if e.code != "??"]
+        self.say("\nYour project has files that are not committed yet. TUA starts from your last")
+        self.say("commit, so they must be saved or hidden first:")
+        for entry in entries[:8]:
+            self.say(f"  {entry.render()}")
+        if len(entries) > 8:
+            self.say(f"  … and {len(entries) - 8} more")
+        secrets = [e.path for e in entries if looks_secret(e.path)]
+        large = []
+        for path in untracked:
+            try:
+                if (repo.root / path).stat().st_size > LARGE_FILE_BYTES:
+                    large.append(path)
+            except OSError:
+                pass
+        can_commit = not secrets and not large
+        options = []
+        if can_commit:
+            options.append("[c] commit them")
+        if not modified:
+            options.append("[i] hide them from Git on this laptop")
+        options.append("[Enter] cancel")
+        if secrets:
+            self.say(
+                "  (not offering to commit; these look like secrets: " + ", ".join(secrets) + ")"
+            )
+        if large:
+            self.say("  (not offering to commit; larger than 50 MB: " + ", ".join(large) + ")")
+        choice = self.ask("  ".join(options) + " > ").strip().lower()
+        if choice == "c" and can_commit:
+            run_git(["add", "-A"], cwd=repo.root)
+            run_git(
+                ["commit", "-q", "-m", "Work in progress (saved before a TUA task)"],
+                cwd=repo.root,
+            )
+            self.say("✓ Committed your changes.")
+            return not repo.status()
+        if choice == "i" and not modified:
+            tracked = frozenset(repo.git("ls-files", "-z").stdout.split("\x00"))
+            added = add_local_excludes(repo, ignore_patterns_for(untracked, tracked))
+            self.say("✓ Hidden on this laptop (.git/info/exclude): " + ", ".join(added))
+            return not repo.status()
+        return False
 
     def summarize(self, task: Task) -> None:
         took = f" in {task.duration_seconds:.0f}s" if task.duration_seconds is not None else ""
