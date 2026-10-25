@@ -48,3 +48,6 @@ CLAUDE.local.md
 *.swp
 *~
 .DS_Store
+
+# --- Local planning notes (kept on this machine, never pushed) ---
+/plan/
