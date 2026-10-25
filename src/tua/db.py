@@ -27,7 +27,7 @@ from tua.models import (
 )
 from tua.paths import create_private_file, ensure_private_dir
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _STATUSES = ", ".join(f"'{s.value}'" for s in TaskStatus)
 _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
@@ -259,7 +259,18 @@ _MIGRATION_2 = [
 # v3: tasks record the reasoning effort they ran with.
 _MIGRATION_3 = ["ALTER TABLE tasks ADD COLUMN effort TEXT"]
 
-MIGRATIONS: dict[int, list[str]] = {1: _MIGRATION_1, 2: _MIGRATION_2, 3: _MIGRATION_3}
+# v4: where the user started TUA (read-only context folder and project subfolder).
+_MIGRATION_4 = [
+    "ALTER TABLE tasks ADD COLUMN context_dir TEXT",
+    "ALTER TABLE tasks ADD COLUMN start_dir TEXT",
+]
+
+MIGRATIONS: dict[int, list[str]] = {
+    1: _MIGRATION_1,
+    2: _MIGRATION_2,
+    3: _MIGRATION_3,
+    4: _MIGRATION_4,
+}
 
 _CORRUPT_HINT = (
     "Move the file aside (for example `mv {path} {path}.broken`) and run the command again "

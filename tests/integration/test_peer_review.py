@@ -188,7 +188,7 @@ def test_migration_from_v1_keeps_data(tmp_path: Path) -> None:
     conn.close()
 
     db = Database.open(path)
-    assert db.schema_version() == SCHEMA_VERSION == 3
+    assert db.schema_version() == SCHEMA_VERSION == 4
     assert [p.name for p in db.list_projects()] == ["p"]
     columns = {r[1] for r in db.conn.execute("PRAGMA table_info(tasks)")}
     assert "review_of" in columns

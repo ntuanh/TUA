@@ -99,6 +99,9 @@ class Session:
         self.ask = ask
         self.say = say
         self.review = ReviewService(db, paths, tasks, AskConfirmer(ask), say)
+        # Where the user started TUA, like `claude` in its working folder.
+        self.context_dir: Path | None = None
+        self.start_dir: str | None = None
 
     def yes(self, question: str, *, default: bool) -> bool:
         hint = "[Y/n]" if default else "[y/N]"
@@ -128,6 +131,13 @@ class Session:
         _, config = load_registered(self.db, project.name)
         model = config.default_model or "default model"
         self.say(f"\nTUA · {project.name} · {config.default_provider} ({model})")
+        if self.context_dir:
+            self.say(
+                f"The AI works on a copy of {project.root_path} and can also read (not change)"
+            )
+            self.say(f"everything in {self.context_dir}.")
+        if self.start_dir:
+            self.say(f"Focus: {self.start_dir}/")
         self.say("Describe what you want, like you would to a colleague: what, where, and how to")
         self.say("check it. End a line with \\ to continue it; type @file to send a file's text.")
         while True:
@@ -151,10 +161,19 @@ class Session:
     def find_repo(self, cwd: Path) -> Repository | None:
         """The Git project to work on: this folder's, one inside it, or a new one."""
         try:
-            return Repository.open(cwd, require_toplevel=False)
+            repo = Repository.open(cwd, require_toplevel=False)
         except RepositoryError:
             pass
+        else:
+            rel = cwd.resolve().relative_to(repo.root).as_posix()
+            self.start_dir = None if rel == "." else rel
+            return repo
+        if unsafe_location(cwd) is None:
+            self.context_dir = cwd.resolve()  # readable context around the project
         children = find_child_repos(cwd)
+        known = [c for c in children if self.db.find_project_by_root(str(c.resolve()))]
+        if len(children) == 1 and known:
+            return Repository.open(children[0])  # chosen before; don't ask again
         if len(children) == 1:
             rel = children[0].relative_to(cwd).as_posix()
             if self.yes(
@@ -205,6 +224,7 @@ class Session:
             return None
         if not self.yes("Make this folder a Git project now?", default=True):
             return None
+        self.context_dir = None  # the folder itself becomes the project
         repo = create_repo(plan)
         self.say("✓ Created a Git project with a first commit (left-out files are in .gitignore).")
         return repo
@@ -291,7 +311,10 @@ class Session:
 
     def start(self, project: Project, prompt: str, *, retry: bool = True) -> Task | None:
         try:
-            task = self.tasks.run(project.name, RunOptions(prompt=prompt))
+            task = self.tasks.run(
+                project.name,
+                RunOptions(prompt=prompt, context_dir=self.context_dir, start_dir=self.start_dir),
+            )
         except DirtyRepositoryError:
             if retry and self.tidy_up(Repository(Path(project.root_path))):
                 return self.start(project, prompt, retry=False)

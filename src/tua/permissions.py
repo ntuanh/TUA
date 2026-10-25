@@ -81,9 +81,17 @@ class PermissionPlan:
 
 
 def build_plan(
-    profile: str, *, worktree: Path, commands: CommandPolicy, paths: TuaPaths
+    profile: str,
+    *,
+    worktree: Path,
+    commands: CommandPolicy,
+    paths: TuaPaths,
+    context_dir: Path | None = None,
 ) -> PermissionPlan:
-    """Build the allow/deny rules for ``profile`` scoped to the task ``worktree``."""
+    """Build the allow/deny rules for ``profile`` scoped to the task ``worktree``.
+
+    ``context_dir`` (where the user started TUA) becomes readable but never editable.
+    """
     worktree = worktree.resolve()
     always_deny = [rule for prefix in ALWAYS_DENIED_COMMANDS for rule in bash_rules(prefix)]
     sensitive = [f"Read({p})" for p in SENSITIVE_HOME_PATHS]
@@ -95,6 +103,10 @@ def build_plan(
     ]
     deny = [*NETWORK_TOOLS, *always_deny, *sensitive, *private_state]
     allow = [_abs_rule("Read", worktree, "/**")]
+    if context_dir is not None:
+        context = context_dir.resolve()
+        allow.append(_abs_rule("Read", context, "/**"))
+        deny.append(_abs_rule("Edit", context, "/**"))
 
     if profile == "safe":
         allow.append(_abs_rule("Edit", worktree, "/**"))

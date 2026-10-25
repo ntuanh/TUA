@@ -224,6 +224,8 @@ class ClaudeCodeAdapter:
             argv += ["--max-turns", str(request.max_turns)]
         if request.effort:
             argv += ["--effort", request.effort]
+        if request.context_dir:
+            argv += ["--add-dir", str(request.context_dir)]
         if request.cli_deny:
             # Variadic option: keep it last so it cannot swallow other arguments.
             argv += ["--disallowedTools", *request.cli_deny]

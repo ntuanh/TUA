@@ -27,6 +27,8 @@ class AdapterRequest:
     max_turns: int | None = None
     permission_profile: str = "safe"
     effort: str | None = None
+    # Extra folder the provider may read (never edit), e.g. where the user started TUA.
+    context_dir: Path | None = None
 
 
 @dataclass(frozen=True)

@@ -28,6 +28,7 @@ KNOWN_FLAGS = {
     "--model": 1,
     "--max-turns": 1,
     "--effort": 1,
+    "--add-dir": -1,
     "--disallowedTools": -1,  # variadic
 }
 PERMISSION_MODES = ["acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"]

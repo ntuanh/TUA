@@ -132,6 +132,8 @@ class Task:
     cleanup_error: str | None
     review_of: str | None
     effort: str | None
+    context_dir: str | None
+    start_dir: str | None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> Task:

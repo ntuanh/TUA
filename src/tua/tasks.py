@@ -83,6 +83,47 @@ class RunOptions:
     review_of: str | None = None
     provider: str | None = None
     effort: str | None = None
+    # Where the user started TUA: a folder the provider may read (never edit), and the
+    # project subfolder to focus on.
+    context_dir: Path | None = None
+    start_dir: str | None = None
+
+
+def validate_context_dir(context: Path | None, *, repo_root: Path, paths: TuaPaths) -> Path | None:
+    """A readable context folder, or None when it adds nothing (inside the project)."""
+    if context is None:
+        return None
+    context = context.expanduser().resolve()
+    if not context.is_dir():
+        raise ConfigError(f"context folder {context} does not exist")
+    if context == repo_root or context.is_relative_to(repo_root):
+        return None  # the task's worktree already has these files
+    if context == Path.home().resolve() or len(context.parts) <= 2:
+        raise ConfigError(
+            f"refusing to let the provider read all of {context}",
+            hint="Start TUA in a project folder rather than your home or a system folder.",
+        )
+    for owned in (paths.state_dir, paths.config_dir, paths.cache_dir):
+        if owned.resolve().is_relative_to(context):
+            raise ConfigError(f"{context} contains TUA's own files; choose a narrower folder")
+    return context
+
+
+def provider_prompt(task: Task) -> str:
+    """The prompt sent to the provider: the user's request plus where they started TUA."""
+    notes = []
+    if task.context_dir:
+        notes.append(
+            f"[TUA] The user started TUA in {task.context_dir}. You may read files there for "
+            "context, but do not modify anything there. Make your changes only in the current "
+            f"directory, which is your working copy of the Git project {task.source_repo}."
+        )
+    if task.start_dir:
+        notes.append(
+            f"[TUA] The user was in the project subfolder '{task.start_dir}'. Focus there "
+            "unless the request says otherwise."
+        )
+    return "\n".join(notes) + ("\n\n" if notes else "") + task.prompt
 
 
 def validate_prompt(prompt: str) -> str:
@@ -145,6 +186,10 @@ class TaskService:
         config = dataclasses.replace(
             config, permission_profile=profile, default_provider=provider, effort=effort
         )
+        context_dir = validate_context_dir(
+            options.context_dir, repo_root=repo.root, paths=self.paths
+        )
+        start_dir = options.start_dir.strip("/") if options.start_dir else None
 
         task = self._create(
             project_id=project.id,
@@ -158,6 +203,8 @@ class TaskService:
             max_turns=max_turns,
             eval_run_id=options.eval_run_id,
             review_of=options.review_of,
+            context_dir=context_dir,
+            start_dir=start_dir or None,
         )
         self.on_progress(
             f"Task {task.id} created for project '{project.name}' "
@@ -183,6 +230,8 @@ class TaskService:
         max_turns: int | None,
         eval_run_id: str | None,
         review_of: str | None,
+        context_dir: Path | None,
+        start_dir: str | None,
     ) -> Task:
         last_error: Exception | None = None
         for _ in range(ID_ATTEMPTS):
@@ -206,6 +255,8 @@ class TaskService:
                 "effort": config.effort,
                 "eval_run_id": eval_run_id,
                 "review_of": review_of,
+                "context_dir": str(context_dir) if context_dir else None,
+                "start_dir": start_dir,
                 "runner_pid": os.getpid(),
                 "runner_host": hostname(),
                 "runner_start": process_identity(os.getpid()),
@@ -234,6 +285,7 @@ class TaskService:
                     worktree=worktree,
                     commands=config.commands,
                     paths=self.paths,
+                    context_dir=Path(task.context_dir) if task.context_dir else None,
                 )
                 settings_path = write_settings(plan, task_dir / "claude-settings.json")
                 permission_mode, cli_deny = plan.permission_mode, plan.cli_deny
@@ -254,7 +306,7 @@ class TaskService:
             )
             request = AdapterRequest(
                 task_id=task.id,
-                prompt=task.prompt,
+                prompt=provider_prompt(task),
                 worktree=worktree,
                 compiled_skill_path=compiled_path,
                 compiled_skill_hash=compiled.compiled_hash,
@@ -267,6 +319,7 @@ class TaskService:
                 max_turns=task.max_turns,
                 permission_profile=task.permission_profile,
                 effort=task.effort,
+                context_dir=Path(task.context_dir) if task.context_dir else None,
             )
             adapter = self.adapter_factory(task.provider)
             info = adapter.detect()
