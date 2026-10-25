@@ -1,0 +1,94 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tua"
+dynamic = ["version"]
+description = "Local-first terminal orchestration of headless AI coding CLI tasks in isolated Git worktrees."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+keywords = ["cli", "git", "worktree", "claude-code", "ai", "orchestration"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+]
+dependencies = ["PyYAML>=6.0,<7"]
+
+[project.optional-dependencies]
+dev = [
+    "build>=1.2",
+    "mypy>=1.10",
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "types-PyYAML>=6.0",
+]
+
+[project.scripts]
+tua = "tua.cli:main"
+
+[project.urls]
+Repository = "https://github.com/ntuanh/TUA"
+Issues = "https://github.com/ntuanh/TUA/issues"
+
+[tool.hatch.version]
+path = "src/tua/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tua"]
+
+[tool.hatch.build.targets.sdist]
+# Explicit allowlist so local, untracked files never end up in a source distribution.
+include = [
+    "/src/tua",
+    "/tests",
+    "/docs",
+    "/examples",
+    "/scripts",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
+    "/CONTRIBUTING.md",
+    "/SECURITY.md",
+    "/pyproject.toml",
+]
+exclude = ["__pycache__", "*.py[cod]"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "live: runs the real Claude Code CLI and uses account quota (opt-in via TUA_LIVE_CLAUDE=1)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "S", "SIM", "C4", "PT", "RUF"]
+ignore = [
+    "S603", # subprocess without shell: TUA always passes argument lists, never shell=True
+    "S607", # partial executable path: git/claude are resolved from PATH by design
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S108", "S311"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["src/tua"]
+warn_unreachable = true

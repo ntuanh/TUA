@@ -1,0 +1,50 @@
+# --- Python build and tooling artifacts ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# --- TUA runtime state ---
+# TUA keeps its database, logs, compiled prompts, and task worktrees under XDG
+# directories outside the repository. These patterns are a defensive backstop.
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+.tua-state/
+
+# --- Secrets and machine-local configuration (never commit) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+id_ecdsa*
+id_ed25519*
+.netrc
+.git-credentials
+.claude/settings.local.json
+CLAUDE.local.md
+.mcp.json
+
+# --- Editors and operating systems ---
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
