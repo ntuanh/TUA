@@ -1,0 +1,35 @@
+# Changelog
+
+All notable changes to this project are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
+[Semantic Versioning](https://semver.org/).
+
+## [0.1.0] - Unreleased
+
+### Added
+
+- `tua` CLI:
+  - `doctor`
+  - `project init/list/show`
+  - `run`, `status`, `diff`, `merge`, `discard`
+  - `good`, `bad`
+  - `eval baseline`, `eval run`
+- SQLite state with schema versioning; a validated task state machine with transactional
+  events; append-only events and feedback; immutable eval baselines.
+- One Git worktree per task, created from a recorded base commit. Dirty checkouts are refused.
+- Claude Code adapter:
+  - headless JSON mode, prompt on stdin
+  - zero-cost flag preflight
+  - login check that reads only `loggedIn`
+  - process-group timeout and cancellation
+  - normalized results and error types
+- Skill compiler: `must`/`default` precedence, conflict detection, separate source and compiled
+  SHA-256 fingerprints, payload injected with `--append-system-prompt-file`.
+- Permission profiles `safe` and `read-only`: `dontAsk` mode, worktree-scoped edits, command
+  allowlist, web tools denied, repository settings and MCP servers not loaded.
+- Squash merge onto an unchanged base, with full diff review and confirmation. Force-merges of
+  unsuccessful tasks need a second, typed confirmation.
+- Eval runner: allowlist-validated commands, run-count and wall-clock budgets, pinned
+  baselines, candidate comparison.
+- Best-effort secret redaction, and refusal of prompts that contain recognizable secrets.
+- Documentation, CI workflow, `scripts/dev-check.sh`, and an opt-in live smoke test.
