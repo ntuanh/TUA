@@ -1,0 +1,28 @@
+# Example eval suite. Place it under the project's eval_dir (default .tua/evals/).
+# Every command must match a commands.allow prefix of the project.
+schema_version: 1
+suite_id: sample-greeting
+project: sample-project
+budget:
+  max_runs: 6
+  max_total_seconds: 3600
+cases:
+  - id: hello-function
+    prompt: "Add a hello(name) function to src/greeting.py that returns 'Hello, <name>!', with a test."
+    checks:
+      - python -m pytest -q tests/test_greeting.py
+    runs: 3
+    timeout_seconds: 600
+  - id: lint-clean
+    prompt: "Fix all ruff findings in src/ without changing behaviour."
+    checks:
+      - ruff check src
+      - python -m pytest -q
+    runs: 1
+    timeout_seconds: 900
+# After `tua eval baseline`, paste the printed pin here, for example:
+# baseline:
+#   id: bl-20261025-101500-1a2b
+#   suite_fingerprint: "sha256:..."
+#   source_skill_hash: "sha256:..."
+#   compiled_skill_hash: "sha256:..."

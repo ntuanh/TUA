@@ -1,0 +1,22 @@
+# TUA project configuration (schema v1).
+# Paths are relative to the repository root and must stay inside it.
+# Never put credentials in this file.
+schema_version: 1
+name: $name
+repository: "."
+default_provider: claude-code
+# default_model: sonnet    # optional alias passed to `claude --model`
+timeout_seconds: 1800
+# max_turns: 50            # optional limit passed to `claude --max-turns`
+permission_profile: safe   # safe | read-only
+skills:
+  - .tua/skills/project-defaults.md
+eval_dir: .tua/evals
+commands:
+  # Command prefixes that the provider's Bash tool and eval suites may run.
+  # Prefix matching is NOT a sandbox: an allowed test runner can execute any code in
+  # the repository. Keep this list short and specific.
+  allow: []
+  # allow:
+  #   - python -m pytest
+  deny: []

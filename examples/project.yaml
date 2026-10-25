@@ -1,0 +1,19 @@
+# Example .tua/project.yaml. Paths are relative to the repository root.
+# Contains no credentials and no machine-specific paths.
+schema_version: 1
+name: sample-project
+repository: "."
+default_provider: claude-code
+default_model: sonnet
+timeout_seconds: 1800
+permission_profile: safe
+skills:
+  - .tua/skills/project-defaults.md
+eval_dir: .tua/evals
+commands:
+  # Prefixes, not a sandbox: an allowed test runner can execute any repository code.
+  allow:
+    - python -m pytest
+    - ruff check
+  deny:
+    - python -m pip install

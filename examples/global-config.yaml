@@ -1,0 +1,4 @@
+# Example ~/.config/tua/config.yaml. Skill paths are relative to ~/.config/tua/.
+schema_version: 1
+skills:
+  - global-rules.md
