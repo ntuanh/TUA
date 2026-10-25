@@ -4,15 +4,16 @@ TUA is a thin, synchronous CLI. There is no server, daemon, queue, or background
 `tua` command runs, does its work, and exits. One task equals one headless provider execution.
 
 ```text
-tua (cli.py) ──► project registry (projects.py, config.py)
+tua (cli.py, interactive.py) ──► project registry (projects.py, config.py, gitsetup.py)
       │                 │
       │          skill compiler (skills.py) ──► compiled payload + SHA-256s
       │                 │
       ├──► task service (tasks.py) ──► permission builder (permissions.py)
       │         │                 └──► worktree manager (worktrees.py, repository.py)
-      │         └──► provider adapter (adapters/claude_code.py) ──► `claude --print`
+      │         └──► provider adapters ──► adapters/claude_code.py ──► `claude --print`
+      │                                    adapters/codex.py ──────► `codex exec --json`
       │                                    └── process runner (process.py)
-      ├──► review (review.py): diff / merge / discard
+      ├──► review (review.py): diff / merge / discard; peer review (peer_review.py)
       ├──► feedback (feedback.py)
       ├──► evaluations (evaluations.py)
       └──► doctor (doctor.py)
@@ -24,6 +25,8 @@ tua (cli.py) ──► project registry (projects.py, config.py)
 | Module | Responsibility |
 |---|---|
 | `cli.py` | Argument parsing, rendering, confirmations. No SQL and no business rules. |
+| `interactive.py` | The `tua` session: finds the project from the current folder, first-run setup, prompt loop, merge/diff/review/discard menu. |
+| `gitsetup.py` | Finding Git projects inside a folder, turning a plain folder into one (leaving out large, secret-like, and nested files), hiding leftovers locally. |
 | `config.py` | Strict parsing of `.tua/project.yaml` and the global config; path validation. |
 | `projects.py` | `project init` and loading registered projects with config-fingerprint checks. |
 | `db.py` | Schema migrations (`PRAGMA user_version`), transactions, and all SQL. |
@@ -87,7 +90,9 @@ Any value the CLI does not supply reliably is `None` ("unknown"). A provider imp
 
 ## Data model
 
-All tables are created by migration 1:
+All tables are created by migration 1. Migrations 2 to 4 add task columns: `review_of`
+(the task a review belongs to), `effort`, and `context_dir` / `start_dir` (the read-only
+surrounding folder and the focus subfolder set by `tua`).
 
 | Table | Contents |
 |---|---|

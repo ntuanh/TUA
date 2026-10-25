@@ -1,112 +1,386 @@
 # TUA
 
-TUA is a local-first, terminal-first orchestration layer for running coding tasks through an
-existing AI coding CLI. Each task is one headless run of
-[Claude Code](https://code.claude.com/docs/en/cli-usage) or OpenAI Codex CLI inside its own Git
-worktree, started from a recorded commit. Every task gets a durable ID,
-fingerprinted skills (instructions), and a SQLite record of its whole lifecycle. You review the
-diff and explicitly merge or discard it. Nothing is ever pushed.
+**Run Claude Code or Codex on a safe copy of your project, see exactly what changed, then keep
+it or throw it away.**
 
-> **Status: v0.1 (alpha).** Providers: Claude Code CLI and OpenAI Codex CLI. Linux first. The interfaces may
-> change. See [Limitations](#limitations).
-
-## Features
-
-- **Isolated tasks.** Each task runs in a dedicated worktree on a `tua/<task-id>` branch, never in
-  your checkout. A dirty checkout is refused, and TUA never stashes, resets, or cleans your work.
-- **Reviewed merges.** `tua merge` shows the full diff, asks for confirmation, and fast-forwards
-  your branch to one squash commit. It refuses if your checkout is dirty, on another branch, or
-  has moved since the task started. Your Git identity is used and nothing is pushed.
-- **Versioned skills.** `must` rules and `default` preferences are compiled into a deterministic
-  payload. TUA appends it to Claude Code's system prompt and records two SHA-256 fingerprints:
-  one for the sources, one for the exact compiled bytes.
-- **Fail-closed permissions.** Tasks run with `--permission-mode dontAsk` and generated
-  allow/deny rules: edits only inside the worktree, Bash only for allowlisted command prefixes,
-  and no web tools. `--dangerously-skip-permissions` is never used.
-- **Honest outcomes.** `completed`, `failed`, `timeout`, and `cancelled` are recorded with
-  normalized error types. Failed, timed-out, cancelled, and interrupted tasks keep their
-  worktree for inspection.
-- **Feedback and evals.** `tua good` and `tua bad` attach feedback to a task's exact
-  fingerprints. They never edit skills. `tua eval` compares a candidate against a pinned,
-  immutable baseline, within run-count and wall-clock budgets.
-
-## Requirements
-
-- Linux (primary target; macOS should mostly work but is untested), Python 3.10+, Git 2.25+.
-- Claude Code CLI on `PATH` and logged in (`claude auth login`). TUA was verified with
-  Claude Code 2.1.301 and 2.1.310 and checks the exact flags it needs before every task.
-- Optional: Codex CLI on `PATH` and logged in (`codex login`), verified with 0.164.0 on a
-  ChatGPT plan. Plan-specific models apply; for example, ChatGPT Go worked with `gpt-6-luna`.
-
-## Installation
-
-TUA is not published to PyPI. Install it from a clone:
-
-```bash
-git clone https://github.com/ntuanh/TUA.git
-cd TUA
-python3 -m venv .venv
-. .venv/bin/activate
-pip install .
-tua --version
-```
-
-Alternatively, run `pipx install .` from the clone.
-
-## Quick start
-
-The easiest way is to open a terminal in your project folder and type `tua`. If the folder
-is not a Git project yet, `tua` offers to make it one safely, or to use a Git project inside
-it:
+Type `tua` in any folder, describe what you want, and the AI works on a separate copy of your
+project (a Git worktree), never on your files. When it finishes, you review the diff and decide:
+merge it as one local commit, ask another model to review it, or discard it. Every task gets an
+ID and a full record of what ran, with which model, rules, and permissions. Nothing is ever
+pushed for you.
 
 ```text
 ~/code/myapp$ tua
-First time here: TUA isn't set up for "myapp" yet.
-Set up TUA for this project now? [Y/n]
-✓ TUA is ready for "myapp".
 
-What should the AI do? > Add a --verbose flag to the CLI and a test for it
+TUA · myapp · claude-code (sonnet)
+Describe what you want, like you would to a colleague: what, where, and how to
+check it. End a line with \ to continue it; type @file to send a file's text.
+
+What should the AI do? (Enter on an empty line to quit)
+> Add a --verbose flag to the CLI and a test for it
+
 ✓ Done in 41s.
+Added a --verbose flag to src/app/cli.py and tests/test_cli.py::test_verbose; all tests pass.
+Changes: 2 files changed, 38 insertions(+), 3 deletions(-)
+
 [m] merge  [d] diff  [r] review  [x] discard  [Enter] keep for later >
 ```
 
-The setup questions appear only the first time. After that, `tua` goes straight to the prompt.
+> **Status: v0.1 (alpha).** Providers: Claude Code CLI and OpenAI Codex CLI. Linux first.
+> Interfaces may change. See [Limitations](#limitations).
 
-Like `claude`, it works from wherever you start it:
-- **Folder around a project** (for example `~/dev/FX1` containing the repository `fx1/`): the AI
-  edits a copy of the project and can also read, but never change, the rest of the folder.
-- **Project subfolder:** the AI is told to focus there.
+## Contents
 
-The same steps as individual commands, for scripts or more control:
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Architecture](#architecture)
+- [User guide](#user-guide)
+- [Command reference](#command-reference)
+- [Configuration](#configuration)
+- [Safety model](#safety-model)
+- [Local state](#local-state)
+- [Limitations](#limitations)
+- [Documentation](#documentation) · [Contributing](#contributing) · [License](#license)
 
-```bash
-tua doctor                                 # check git, claude, login, and local state
-tua project init ~/code/myrepo --name myrepo
-cd ~/code/myrepo && git add .tua && git commit -m "Add TUA config"   # TUA needs a clean checkout
-tua run "Add a --verbose flag to the CLI and a test for it" --project myrepo
-tua status                                 # list tasks
-tua diff <TASK_ID>                         # review the change
-tua merge <TASK_ID>                        # shows the diff again, asks, commits locally
-tua discard <TASK_ID>                      # or throw it away (asks first)
-tua good <TASK_ID> --note "clean change"   # optional feedback
+## Features
+
+### Works like `claude`, with an undo button
+
+- **One command.** `tua` starts an interactive session in the current folder. On first use it
+  asks a few yes/no questions, then goes straight to the prompt every time after.
+- **Any folder.** Inside a Git project, TUA uses it. In a folder that *contains* a project, the
+  AI edits the project and can also read, but not change, the surrounding folder. In a
+  subfolder, it tells the AI to focus there. In a plain folder, it offers to make it a Git
+  project, leaving out large files, secrets, and nested projects.
+- **Review before anything lands.** After each task you see the change summary and choose
+  `[m]` merge, `[d]` diff, `[r]` review, `[x]` discard, or keep it for later.
+
+### Safe by design
+
+- **Isolated copies.** Each task runs in its own worktree on a `tua/<task-id>` branch, started
+  from your last commit. Your checkout is never the AI's working directory.
+- **No surprises in your checkout.** A dirty checkout is refused. TUA never stashes, resets,
+  cleans, or overwrites your work. It offers to commit or hide leftovers only when you agree.
+- **Careful merges.** `tua merge` shows the full diff, asks, and fast-forwards your branch to
+  one squash commit made with your own Git identity. It refuses if your branch moved, is dirty,
+  or is a different branch. Nothing is pushed.
+- **Fail-closed permissions.** Claude Code runs with `--permission-mode dontAsk` and generated
+  allow/deny rules: edits only inside the copy, shell commands only from your allowlist, no web
+  tools, no MCP servers. Codex runs in its OS sandbox with the network off.
+  `--dangerously-skip-permissions` is never used.
+- **Secrets stay out.** TUA never reads credential files, refuses prompts that contain
+  recognizable secrets, never offers secret-like files for commit, and redacts logs on a
+  best-effort basis.
+
+### Several models, one workflow
+
+- **Claude Code** (Haiku, Sonnet, Opus) and **OpenAI Codex** (models your ChatGPT plan
+  includes), chosen per project or per task with `--provider`, `--model`, and `--effort`.
+- **Second opinions.** `tua review <ID> --model sonnet` (or `--provider codex`) has another model
+  review a change as a recorded, read-only task.
+- **Read-only tasks.** `--profile read-only` lets the AI read and explain code without editing
+  anything or running commands.
+
+### Reproducible and measurable
+
+- **Durable task records.** SQLite stores every task's state machine, events, prompt, base
+  commit, model, CLI version, usage, and permission denials.
+- **Fingerprinted rules.** Project and global *skills* (`must` rules and `default` preferences)
+  are compiled into one deterministic payload, recorded with SHA-256 hashes of the sources and
+  of the exact bytes sent.
+- **Feedback and evals.** `tua good` / `tua bad` attach feedback to a task's exact
+  fingerprints. `tua eval` compares a candidate setup against a pinned, immutable baseline,
+  within run and time budgets.
+
+## How it works
+
+### One task, start to finish
+
+```text
+ your project (last commit)
+        │
+        │ 1. git worktree add -b tua/<id>
+        ▼
+ ┌──────────────────────────────┐     2. AI CLI runs headless here:
+ │  copy: ~/.local/state/tua/   │◄──── claude --print …  or  codex exec …
+ │        worktrees/<id>        │      with TUA's rules and permissions
+ └──────────────┬───────────────┘
+                │ 3. TUA records the result (status, model, usage, log)
+                ▼
+          you choose:
+   [d] diff ── shows every change against the base commit
+   [r] review ─ another model reads the change (read-only task)
+   [m] merge ── one squash commit on your branch (local only)
+   [x] discard ─ copy and branch deleted, your files untouched
 ```
 
-`tua project init` creates `.tua/project.yaml` and `.tua/skills/project-defaults.md` if they are
-missing. It never overwrites them. Commit them, or add `.tua/` to `.git/info/exclude` to keep
-them local.
+In more detail, `tua` (or `tua run`) does this for every task:
 
-## Commands
+1. **Finds the project** from the folder you are in and loads its registered settings. If
+   `.tua/project.yaml` changed since you approved it, TUA shows the new permissions and asks
+   again, so a `git pull` cannot quietly widen what the AI may do.
+2. **Checks your checkout** is clean and on a branch, and records the branch and commit.
+3. **Creates the task** in SQLite with a new ID (`created` → `preparing`).
+4. **Compiles the skills** (built-in TUA rules, your global rules, the project's rules) into one
+   payload and hashes it. It **generates the permission rules** for this task's copy.
+5. **Preflights the provider at no cost.** It runs the exact command with empty input to prove
+   every flag is supported, then checks you are logged in. It reads only a yes/no login flag,
+   never a credential.
+6. **Creates the copy** with `git worktree add` and verifies it starts at the recorded commit.
+7. **Runs the AI CLI headless** in the copy, with the prompt on stdin, inside its own process
+   group with a timeout. Ctrl+C stops it cleanly.
+8. **Records the outcome** (`completed`, `failed`, `timeout`, or `cancelled`) with a normalized
+   error type, the model actually reported, turns, usage, and any denied tool calls.
+9. **Waits for your decision.** A merge snapshots the copy, shows the diff, checks again that
+   nothing moved, commits with your identity, and fast-forwards your branch. A discard removes
+   the copy and its branch after confirmation. Failed tasks keep their copy so you can inspect
+   them.
+
+### Why Git?
+
+Git is what makes the copy, the exact change list, and the undo possible. Plain `claude` edits
+your files directly, while TUA gives the AI a disposable copy and only touches your branch when
+you say `m`. If a folder is not a Git project yet, `tua` shows exactly what it would save and
+asks before creating one. It never does this in your home folder.
+
+### What `tua` does in each kind of folder
+
+| You start `tua` in… | What happens |
+|---|---|
+| a Git project (or anywhere inside one) | uses it; from a subfolder, the AI is told to focus there |
+| a folder that *contains* Git projects (e.g. `~/dev/FX1` with `fx1/`) | asks which one to use (only once). The AI edits a copy of that project and can **read** the rest of the folder (docs, reports), never change it. |
+| a folder with no Git | shows what would be committed and asks "Make this folder a Git project now? [Y/n]". Files over 50 MB, secret-like files (`.env`, keys), and nested projects are left out and added to `.gitignore`. |
+| a project with uncommitted or leftover files | lists them and offers `[c]` commit or `[i]` hide them from Git on this machine only. Hiding never deletes anything; secrets and files over 50 MB are never offered for commit. |
+
+## Architecture
+
+TUA is a thin, synchronous Python CLI. There is no server, daemon, or background process: each
+`tua` command does its work and exits. One task is one headless run of an AI coding CLI.
+
+```text
+                 tua  (cli.py · interactive.py)
+                  │
+   ┌──────────────┼──────────────────────────┬───────────────────────┐
+   ▼              ▼                          ▼                       ▼
+ project setup   task service (tasks.py)    review (review.py)      feedback / eval / doctor
+ projects.py      ├─ skill compiler           diff · merge · discard   feedback.py
+ config.py        │   skills.py → payload     peer review              evaluations.py
+ gitsetup.py      │   + SHA-256 hashes        (peer_review.py)         doctor.py
+                  ├─ permission builder
+                  │   permissions.py
+                  ├─ worktree manager
+                  │   worktrees.py · repository.py (the only way TUA runs git)
+                  └─ provider adapters
+                      adapters/claude_code.py ──► claude --print
+                      adapters/codex.py ───────► codex exec --json
+                          └─ process runner (process.py): process group, timeout, cancel
+
+            all state ──► SQLite (db.py) + private files under ~/.local/state/tua
+```
+
+| Layer | Modules | Responsibility |
+|---|---|---|
+| Interface | `cli.py`, `interactive.py` | Commands, the `tua` session, rendering, confirmations. No SQL. |
+| Projects | `config.py`, `projects.py`, `gitsetup.py` | Strict config parsing, registration with a config fingerprint, safe Git setup for plain folders. |
+| Tasks | `tasks.py`, `models.py` | Task creation, preparation, execution, recording, crash reconciliation; the state machine. |
+| Git | `repository.py`, `worktrees.py`, `review.py` | Git with argument lists and a scrubbed environment; worktrees, temporary-index snapshots, diff, merge, discard. |
+| Rules | `skills.py`, `permissions.py` | Skill precedence and deterministic compilation; permission profiles to provider rules. |
+| Providers | `adapters/base.py`, `adapters/claude_code.py`, `adapters/codex.py`, `process.py` | One contract (`AdapterRequest` → `AdapterResult`): detect, preflight, login check, run, normalize. |
+| Quality | `peer_review.py`, `feedback.py`, `evaluations.py` | Model reviews, append-only feedback, baseline-vs-candidate evals. |
+| Storage | `db.py`, `paths.py`, `logging_utils.py` | SQLite migrations and transactions, private XDG paths, redacted logs. |
+
+**Task states**
+
+```text
+created → preparing → running → completed | failed | timeout | cancelled
+completed → merged | discarded
+failed | timeout | cancelled → discarded | merged (--force, confirmed twice)
+```
+
+Every transition is checked against this table and written together with its event in one
+SQLite transaction. Task identity columns are immutable and the event and feedback tables are
+append-only, both enforced by triggers.
+
+**Adding a provider** means implementing the four adapter methods (`detect`, `check_ready`,
+`login_state`, `run`). Anything a CLI does not report reliably is stored as unknown, not guessed.
+
+More: [docs/architecture.md](docs/architecture.md),
+[docs/task-lifecycle.md](docs/task-lifecycle.md), [docs/decisions.md](docs/decisions.md).
+
+## User guide
+
+### 1. Install (once per machine)
+
+Requirements: Linux (macOS should mostly work but is untested), Python 3.10+, Git 2.25+.
+
+```bash
+git clone https://github.com/ntuanh/TUA.git ~/solo/TUA
+pipx install --editable ~/solo/TUA     # `tua` now works in every folder and terminal
+tua --version                          # tua 0.1.0
+```
+
+No pipx? Use a virtual environment: `python3 -m venv .venv && . .venv/bin/activate && pip install .`
+If you see `tua: command not found`, run `pipx ensurepath` and open a new terminal.
+
+### 2. Log in to an AI CLI (once)
+
+TUA uses the AI CLIs you already have, with your existing subscription. It never asks for or
+stores a key.
+
+| Provider | Install and log in | Notes |
+|---|---|---|
+| Claude Code (required) | `npm install -g @anthropic-ai/claude-code`, then `claude auth login` | Works with a Claude Pro plan. Verified with Claude Code 2.1.301 and 2.1.310. |
+| Codex (optional) | `npm install -g @openai/codex`, then `codex login` | Works with ChatGPT plans that include Codex models; on ChatGPT Go, `gpt-6-luna` worked. Verified with 0.164.0. |
+
+Then check everything:
+
+```bash
+tua doctor      # Python, Git, Claude Code (version, flags, login), Codex, local state
+```
+
+### 3. First run in a project
+
+```bash
+cd ~/code/myapp
+tua
+```
+
+The first time, TUA asks a few questions. Press Enter to accept the suggested answer:
+
+1. `Set up TUA for this project now? [Y/n]`
+2. `Let the AI run "python -m pytest" to test its own work? [Y/n]` (shown when TUA recognizes
+   pytest, `npm test`, `cargo test`, or `go test`)
+3. `Save TUA's settings in Git (commit .tua/)? [y/N]`. The default keeps them on this machine
+   only.
+
+If the repository already ships TUA settings, TUA shows their permissions and asks whether you
+trust them before using them.
+
+### 4. Every run after that
+
+`tua` goes straight to the prompt. Type a request, press Enter, wait, then choose:
+
+| Key | Action |
+|---|---|
+| `m` | **merge**: keep the change as one local commit (nothing is pushed) |
+| `d` | **diff**: show the full change |
+| `r` | **review**: ask another model to check the change |
+| `x` | **discard**: delete the copy; your files are untouched |
+| Enter | **keep for later**: decide later with `tua merge <ID>` or `tua discard <ID>` |
+
+Press Enter on an empty prompt (or Ctrl+D) to quit. When you are happy, push as usual:
+`git push`.
+
+### 5. Writing good prompts
+
+Describe the task like you would to a colleague: **what** to change, **where**, and **how to
+check it**.
+
+```text
+> Add a --verbose flag to the CLI in src/app/cli.py that prints each file it processes.
+  Add a test in tests/test_cli.py and run the tests.
+
+> The date parser in utils/dates.py fails on "2026-02-30". Make it raise ValueError
+  with a clear message, and add a test for it.
+
+> Explain how the upload flow works, from the API route to the storage layer.
+  Don't change anything.
+```
+
+- End a line with `\` to continue on the next line.
+- For a long request, put it in a file and type `@path/to/request.md`.
+- The AI can run your tests only if you allowed the command (step 3, or
+  [Let the AI run commands](#7-let-the-ai-run-commands)).
+
+### 6. Choosing a model and provider
+
+```bash
+tua run "Fix the failing date parser" --project myapp --model haiku      # fast, light on quota
+tua run "Refactor the storage layer" --project myapp --model opus        # hardest tasks
+tua run "Fix the failing date parser" --project myapp \
+    --provider codex --model gpt-6-luna --effort medium                  # ChatGPT (Codex)
+tua run "Explain the auth flow" --project myapp --profile read-only      # no edits, no commands
+```
+
+Haiku is a good default. Sonnet is a good choice for reviews and harder fixes. To change a
+project's default, edit `.tua/project.yaml` (`default_provider`, `default_model`, `effort`) and
+run `tua` or `tua project init` again to approve it.
+
+The **cost** TUA shows is the CLI's API-equivalent estimate. On a subscription plan you are not
+billed per token; tasks use your plan's quota.
+
+### 7. Let the AI run commands
+
+By default the AI can read and edit files in its copy but cannot run shell commands. Allow the
+ones you trust, such as tests:
+
+```yaml
+# .tua/project.yaml
+commands:
+  allow: ["python -m pytest", "npm test"]
+  deny: []
+```
+
+Then run `tua` (or `tua project init <PATH> --name <NAME>`) to approve the change. An allowed
+test command can run any code in your project, so keep the list short. Codex does not use this
+list; its sandbox lets it run commands but write only inside its copy and `/tmp`.
+
+### 8. Ask a second model to review
+
+From the menu press `r`, or:
+
+```bash
+tua review <TASK_ID> --model sonnet
+tua review <TASK_ID> --provider codex --model gpt-6-luna --focus "input validation"
+```
+
+The review is its own read-only task with its own ID, linked to the reviewed task
+(`tua status <TASK_ID>` lists it). Treat it as an extra opinion: confirm findings with tests.
+
+### 9. Scripting and several projects
+
+Every interactive step has a command, which is handy for scripts and for working on several
+projects from one terminal:
+
+```bash
+tua project init ~/code/api --name api --allow "python -m pytest"
+tua project list
+tua run "Add pagination to GET /items" --project api
+tua status                      # list tasks and IDs
+tua diff <TASK_ID>              # the change
+tua merge <TASK_ID>             # shows the diff, asks, commits locally
+tua discard <TASK_ID>           # or throw it away (asks first)
+tua good <TASK_ID> --note "clean change"
+```
+
+`tua run` needs a clean checkout: commit `.tua/` or list it in `.git/info/exclude` first.
+
+### 10. Common messages
+
+| Message | What to do |
+|---|---|
+| `has uncommitted or untracked changes` | In `tua`, choose `[c]` commit or `[i]` hide. With `tua run`, commit your work first. |
+| `has no commits yet` | Make a first commit, or run plain `tua` and let it set Git up. |
+| `is not inside a Git repository` | Run plain `tua` there; it offers to set Git up for you. |
+| `changed since project ... was registered` | Run `tua` (or `tua project init`) again and approve the new settings. |
+| Task status `rate_limited` | You reached your plan's limit. Wait for it to reset. |
+| Task status `failed` or `timeout` | `tua status <ID>` shows the reason and how to resume the session; `tua diff <ID>` shows partial work. |
+| `has moved from the task's base` when merging | You committed after the task started. Discard it and run the task again, or merge the kept `tua/<ID>` branch yourself. |
+
+The full guide, with more examples: [docs/user-guide.md](docs/user-guide.md).
+
+## Command reference
 
 | Command | Purpose |
 |---|---|
-| `tua` | Interactive mode in the current project: setup on first use, then prompt, run, review, merge |
+| `tua` | Interactive session in the current folder: setup on first use, then prompt, run, review, merge |
 | `tua --version`, `tua --help` | Version and help (`tua <command> --help` for each command) |
-| `tua doctor` | Diagnose Python, Git, Claude Code (version, flags, login), local state, projects |
-| `tua project init <PATH> --name <NAME> [--allow CMD ...]` | Create `.tua/project.yaml` if missing (optionally allowing commands such as tests), validate, register |
+| `tua doctor` | Diagnose Python, Git, Claude Code (version, flags, login), Codex, local state, projects |
+| `tua project init <PATH> --name <NAME> [--allow CMD ...]` | Create `.tua/project.yaml` if missing (never overwrites), validate, register or re-approve |
 | `tua project list` / `tua project show <NAME>` | List projects; show config, skills, hashes, permission rules |
-| `tua run "<PROMPT>" --project <NAME> [--model M] [--timeout S] [--max-turns N] [--profile read-only]` | Run one task (`--profile` can only narrow the project's permissions) |
-| `tua review <TASK_ID> [--provider P] [--model M] [--focus TEXT]` | Have a model review a task's changes, as a recorded read-only task |
-| `tua status [TASK_ID] [--project NAME] [--limit N]` | List tasks, or show one with its event log |
+| `tua run "<PROMPT>" --project <NAME> [--provider P] [--model M] [--effort E] [--timeout S] [--max-turns N] [--profile read-only]` | Run one task (`--profile` can only narrow the project's permissions) |
+| `tua review <TASK_ID> [--provider P] [--model M] [--effort E] [--focus TEXT]` | Have a model review a task's changes, as a recorded read-only task |
+| `tua status [TASK_ID] [--project NAME] [--limit N]` | List tasks, or show one with its event log and reviews |
 | `tua diff <TASK_ID> [--stat]` | Changes against the base commit (works for failed tasks too) |
 | `tua merge <TASK_ID> [--yes] [--force] [-m MSG]` | Review and squash-merge locally; never pushes |
 | `tua discard <TASK_ID> [--yes]` | Remove the task's worktree and branch after confirmation |
@@ -117,14 +391,12 @@ them local.
 Both `eval` commands also accept `--max-runs N`, `--max-seconds N`, `--yes`, and
 `--keep-worktrees`.
 
-`run` and `review` also accept `--provider claude-code|codex` and `--effort LEVEL`.
-
 `--yes` skips only the confirmation for completed tasks; the diff is still printed. `--force`
-lets you merge a failed, timed-out, or cancelled task. It always asks twice, the second time
-by typing the task ID, and it never skips safety checks.
+lets you merge a failed, timed-out, or cancelled task. It always asks twice, the second time by
+typing the task ID, and never skips safety checks.
 
-Exit codes: `0` success, `1` error, failed task, or incomplete eval, `2` usage error,
-`124` task timeout, `130` cancelled.
+Exit codes: `0` success, `1` error, failed task, or incomplete eval, `2` usage error, `124` task
+timeout, `130` cancelled.
 
 ## Configuration
 
@@ -144,39 +416,40 @@ skills:
   - .tua/skills/project-defaults.md
 eval_dir: .tua/evals
 commands:
-  allow: ["python -m pytest"]  # prefixes the provider's Bash tool and eval suites may run
+  allow: ["python -m pytest"]  # command prefixes the AI's shell tool and eval suites may run
   deny: ["python -m pip"]
 ```
 
-A skill file is Markdown with front matter and one `## must: <id>` or `## default: <id>`
-section per rule. Global skills are listed in `~/.config/tua/config.yaml`. Editing
-`project.yaml` requires re-running `tua project init` before the next task, so a `git pull`
-cannot silently widen permissions. Details: [docs/configuration.md](docs/configuration.md).
+A skill file is Markdown with front matter and one `## must: <id>` or `## default: <id>` section
+per rule. Global skills are listed in `~/.config/tua/config.yaml`. Any edit to `project.yaml`
+must be approved again before the next task. Details and examples:
+[docs/configuration.md](docs/configuration.md), [examples/](examples/).
 
 ## Safety model
 
-- Tool permissions come from a generated Claude Code settings file, loaded with
-  `--setting-sources user`. Your own user settings still apply. Project and local settings from
-  the repository are not loaded, so repository-provided hooks or allow rules cannot widen access.
-  MCP servers are disabled with `--strict-mcp-config`.
+- **Claude Code** tasks get a generated settings file loaded with `--setting-sources user`, so
+  project and local settings from the repository (hooks, allow rules) cannot widen access. MCP
+  servers are off (`--strict-mcp-config`). Critical denies are repeated with `--disallowedTools`.
+  Claude Code tasks cannot read outside the copy, except a read-only surrounding folder that
+  `tua` set up when you started it there.
 - **Claude Code permissions are not an OS sandbox.** An allowlisted command such as a test
-  runner can run arbitrary code from the repository.
-- **Codex tasks use Codex's OS sandbox instead.** `safe` maps to `workspace-write`, which
-  allows writes only to the worktree and `/tmp` and blocks the network. `read-only` maps to
-  `read-only`. Codex has no per-command allowlist, so `commands.allow` does not apply to it.
-  **The Codex sandbox does not restrict reads.** A Codex task can read any file your user can,
-  and its conversation goes to the provider. Claude Code tasks cannot read outside the
-  worktree. Keep `commands.allow` short and run TUA only on code you
-  are willing to execute.
-- TUA never reads credential files and reads only the `loggedIn` boolean from
-  `claude auth status`. It refuses prompts that contain recognizable secrets, and it redacts
-  known secret formats in logs on a best-effort basis.
+  runner can run any code from the repository.
+- **Codex** tasks use Codex's OS sandbox: `safe` maps to `workspace-write` (writes only to the
+  copy and `/tmp`, no network) and `read-only` to `read-only`. Codex has no per-command
+  allowlist. **The Codex sandbox does not restrict reads:** a Codex task can read any file your
+  user can, and its conversation goes to the provider. TUA warns about this on every Codex task.
+  Use Claude Code for sensitive machines.
+- TUA never reads credential files and reads only the `loggedIn` flag from
+  `claude auth status` (for Codex, only the exit status and leading words of
+  `codex login status`). It refuses prompts that
+  contain recognizable secrets and redacts known secret formats in logs on a best-effort basis.
+- Run TUA only on code you are willing to execute.
 
 Full details: [docs/security.md](docs/security.md).
 
 ## Local state
 
-TUA keeps everything outside your repositories and respects `XDG_*`:
+TUA keeps its data outside your repositories and respects `XDG_*`:
 
 | What | Where |
 |---|---|
@@ -184,37 +457,44 @@ TUA keeps everything outside your repositories and respects `XDG_*`:
 | Global config and global skills | `~/.config/tua/` |
 | Temporary files | `~/.cache/tua/` |
 
-Directories are created with mode `0700` and files with mode `0600`.
+Directories are created with mode `0700` and files with mode `0600`. Your projects contain only
+the `.tua/` folder, which you can commit or keep local.
 
 ## Limitations
 
-- Two providers (Claude Code, Codex). Gemini CLI is not supported: personal Google logins
-  are currently rejected for it. Tasks are single headless runs, with no conversation follow-up
-  inside TUA; `tua status <id>` shows how to resume the session in the provider CLI.
-- Codex does not report the model it actually used or a cost; TUA records the requested model
+- Two providers, Claude Code and Codex. Gemini CLI is not supported: Google stopped serving
+  personal and Google AI Pro/Ultra accounts through it on June 18, 2026.
+- Each task is a single headless run with no follow-up conversation inside TUA. `tua status
+  <ID>` shows how to resume the session in the provider's CLI.
+- Codex does not report the model it actually used or a cost. TUA records the requested model
   and leaves the rest unknown.
-- Merges only onto an unchanged base. If your branch moved, merge the kept `tua/<id>` branch
-  yourself or discard and re-run the task.
-- Permission rules use prefix matching and Claude Code's own semantics. They are not a security
-  sandbox.
-- Rate-limit and authentication errors are classified only from structured fields or distinctive
-  messages. Anything else is reported as `provider_error`.
+- Merges only onto an unchanged base. If your branch moved, merge the kept `tua/<ID>` branch
+  yourself, or discard and re-run.
+- The AI's copy contains only committed files. Ignored files (such as a local toolchain or
+  build output) are not in it.
+- Permission rules use prefix matching and the provider's own semantics. They are not a
+  security sandbox.
+- Rate-limit and authentication errors are classified only from structured fields or
+  distinctive messages. Anything else is reported as `provider_error`.
 - Eval comparisons over a few LLM runs are noisy, and TUA reports no statistical significance.
 
 ## Documentation
 
+- [User guide](docs/user-guide.md)
 - [Architecture](docs/architecture.md)
 - [Configuration](docs/configuration.md)
 - [Task lifecycle and recovery](docs/task-lifecycle.md)
 - [Security](docs/security.md)
 - [Evaluations](docs/evaluations.md)
 - [Decision log](docs/decisions.md)
+- [Changelog](CHANGELOG.md)
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Run `scripts/dev-check.sh` before opening a pull request.
-Tests use temporary repositories and a fake `claude` executable, so they need no account and
-no network. Report security issues as described in [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Run `scripts/dev-check.sh` (format, lint, type check,
+tests, build) before opening a pull request. Tests use temporary repositories and fake `claude`
+and `codex` executables, so they need no account and no network. Report security issues as
+described in [SECURITY.md](SECURITY.md).
 
 ## License
 
