@@ -237,10 +237,11 @@ class TaskService:
                 )
                 settings_path = write_settings(plan, task_dir / "claude-settings.json")
                 permission_mode, cli_deny = plan.permission_mode, plan.cli_deny
-            elif config.commands.allow:
+            else:
                 self.on_progress(
-                    f"Note: {task.provider} enforces permissions with its OS sandbox "
-                    f"({config.permission_profile}); commands.allow is not used per command."
+                    f"Note: {task.provider} uses its own sandbox: it cannot write outside the "
+                    "task folder or use the network, but it CAN read any file your user can "
+                    "read, and what it reads is sent to the provider. commands.allow is not used."
                 )
             task = self.db.update_task(
                 task.id,

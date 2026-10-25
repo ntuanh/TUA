@@ -186,3 +186,16 @@ def test_project_default_provider_codex(
     assert task.effort == "medium"
     assert task.model_alias == "gpt-6-luna"
     assert task.status is TaskStatus.COMPLETED
+
+
+def test_codex_read_warning_is_shown(
+    db: Database, paths: TuaPaths, project: str, fake_codex: FakeCodex
+) -> None:
+    from tua.adapters import create_adapter
+
+    notes: list[str] = []
+    service = TaskService(
+        db, paths, lambda p: create_adapter(p, scratch_dir=paths.tmp_dir), on_progress=notes.append
+    )
+    service.run(project, RunOptions(prompt="x", provider="codex"))
+    assert any("CAN read any file" in note for note in notes)

@@ -6,7 +6,9 @@ Code adapter, all deliberate:
 * Skills are passed as ``-c developer_instructions=<payload>``; Codex has no flag that
   appends a system-prompt file. The payload is not secret, but it does appear in argv.
 * Permissions come from Codex's own OS sandbox: ``safe`` maps to ``workspace-write`` (writes
-  only inside the worktree, no network) and ``read-only`` to ``read-only``. Approvals are
+  only inside the worktree and /tmp, no network) and ``read-only`` to ``read-only``. The
+  sandbox does not restrict *reads*: verified live, a Codex task read a file outside its
+  worktree by absolute path. Approvals are
   set to ``never`` so nothing waits for a person. Codex has no per-command allowlist, so
   ``commands.allow``/``deny`` are not enforced for Codex tasks; the sandbox limits what any
   command can do instead.

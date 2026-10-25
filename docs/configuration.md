@@ -78,6 +78,12 @@ Codex tasks use Codex's own OS sandbox rather than tool rules:
 | `safe` | `workspace-write`, network off | Commands may write only inside the worktree and `/tmp` (Codex's default writable roots). |
 | `read-only` | `read-only` | Commands can read but not write anywhere. |
 
+**Codex can read files outside the project.** Its sandbox limits writes and network access,
+not reads. A live test confirmed that a Codex task read a file elsewhere on disk by absolute
+path. Anything it reads becomes part of the conversation sent to the provider. Claude Code
+tasks, by contrast, were blocked from reading outside the worktree. TUA prints a note when a
+Codex task starts.
+
 TUA always passes:
 
 - `approval_policy="never"`, so nothing waits for a person

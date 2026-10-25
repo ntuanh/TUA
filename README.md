@@ -158,7 +158,10 @@ cannot silently widen permissions. Details: [docs/configuration.md](docs/configu
   runner can run arbitrary code from the repository.
 - **Codex tasks use Codex's OS sandbox instead.** `safe` maps to `workspace-write`, which
   allows writes only to the worktree and `/tmp` and blocks the network. `read-only` maps to
-  `read-only`. Codex has no per-command allowlist, so `commands.allow` does not apply to it. Keep `commands.allow` short and run TUA only on code you
+  `read-only`. Codex has no per-command allowlist, so `commands.allow` does not apply to it.
+  **The Codex sandbox does not restrict reads.** A Codex task can read any file your user can,
+  and its conversation goes to the provider. Claude Code tasks cannot read outside the
+  worktree. Keep `commands.allow` short and run TUA only on code you
   are willing to execute.
 - TUA never reads credential files and reads only the `loggedIn` boolean from
   `claude auth status`. It refuses prompts that contain recognizable secrets, and it redacts

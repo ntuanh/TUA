@@ -217,6 +217,9 @@ Codex keeps tasks safe with its own sandbox. The AI can run any command, but it 
 inside the task folder (and `/tmp`) and has no network. Your `commands.allow` list is not used
 for Codex.
 
+**Important:** Codex can still *read* any file on your laptop that you can read, not just the
+project. With Claude, the AI can only read the project. Use Claude for anything sensitive.
+
 A good habit is to let one model write the change and another review it:
 
 ```bash

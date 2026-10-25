@@ -147,6 +147,9 @@ Verified with codex-cli 0.164.0 on a ChatGPT Go login. The user's default Codex 
   configuration out of tasks.
 - **Unknown values.** Codex reports neither the model it used nor a cost, so TUA stores them
   as unknown.
+- **Reads are not sandboxed.** A follow-up live probe showed that a Codex task (`safe`,
+  `workspace-write`) read a file outside its worktree by absolute path, while a Claude Code
+  task was denied. This is documented, and TUA prints it at the start of every Codex task.
 
 ## D19: Effort levels are validated by TUA
 

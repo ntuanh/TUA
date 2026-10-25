@@ -40,8 +40,11 @@ security boundary.
   loaded, because they are your own choices. TUA's deny rules still take precedence.
 - **No OS isolation for Claude Code tasks.** There are no containers, namespaces, or network
   filtering. Run TUA only on repositories whose code you are willing to execute.
-- **Codex's sandbox has its own limits.** Commands may write to `/tmp`, and TUA cannot enforce
-  `commands.allow`/`deny` for Codex. The compiled skills are passed on the command line, so
+- **Codex's sandbox has its own limits.** It does not restrict reads: a live test showed a
+  Codex task reading a file outside its worktree, so it can read anything your user can read,
+  including credentials, and its conversation goes to the provider. Commands may also write to
+  `/tmp`, and TUA cannot enforce `commands.allow`/`deny` for Codex. Prefer Claude Code for
+  untrusted repositories, or use a separate OS user or a container. The compiled skills are passed on the command line, so
   they are visible in the process list. They are not secrets.
 - **Escaped processes.** A process that leaves the provider's process group (for example with
   `setsid`) is not stopped by timeout or cancellation.
