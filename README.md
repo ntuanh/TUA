@@ -55,7 +55,9 @@ Alternatively, run `pipx install .` from the clone.
 
 ## Quick start
 
-The easiest way is to go to your project folder (any Git repository) and type `tua`:
+The easiest way is to open a terminal in your project folder and type `tua`. If the folder
+is not a Git project yet, `tua` offers to make it one safely, or to use a Git project inside
+it:
 
 ```text
 ~/code/myapp$ tua

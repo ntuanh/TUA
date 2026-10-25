@@ -14,7 +14,17 @@ If you see `tua: command not found`, run `pipx ensurepath`, then open a new term
 
 ## 0. The easy way: just type `tua`
 
-Open a terminal **in your project folder** and type `tua`:
+Open a terminal **in any folder** and type `tua`. TUA needs Git underneath, because that is
+how it keeps your files safe, and it sorts that out for you with a yes/no question:
+
+| Your folder | What `tua` does |
+|---|---|
+| is a Git project (or inside one) | uses it |
+| *contains* a Git project, like `FX1/` containing `fx1/` | "contains one: fx1/. Use it? [Y/n]" |
+| has no Git at all | shows what it would save, then "Make this folder a Git project now? [Y/n]". Files over 50 MB, secret-like files such as `.env`, and nested Git projects are left out and added to `.gitignore`. It never does this in your home folder. |
+| has uncommitted or leftover files | "[c] commit them  [i] hide them from Git on this laptop". Hiding never deletes anything, and secrets are never offered for commit. |
+
+For example:
 
 ```bash
 cd ~/code/myapp
@@ -233,9 +243,9 @@ tua run "Fix the broken link in the footer" --project website
 
 | Message | What to do |
 |---|---|
-| `has uncommitted or untracked changes` | Commit your work (or `git stash -u` yourself), then run again. |
+| `has uncommitted or untracked changes` | In `tua` interactive mode, choose `[c]` or `[i]`. With `tua run`, commit your work first. |
 | `has no commits yet` | Make a first commit (see Step 1). |
-| `is not inside a Git repository` | Run `git init` in the folder first. |
+| `is not inside a Git repository` | Run plain `tua` there; it offers to set Git up for you. |
 | `changed since project ... was registered` | Run `tua project init <PATH> --name <NAME>` again. |
 | Task status `rate_limited` | You reached your Claude plan's limit. Wait for it to reset; do not buy credits unless you want to. |
 | Task status `failed` or `timeout` | Run `tua status <TASK_ID>` for the reason, and `tua diff <TASK_ID>` to see partial work. |

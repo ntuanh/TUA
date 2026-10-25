@@ -28,6 +28,15 @@ All notable changes to this project are documented here. The format follows
     command, keep `.tua/` local or commit only that folder.
   - It then loops: prompt, run, then merge / diff / review / discard / keep.
   - Settings that came with a repository, and changed settings, must be approved first.
+- `tua` works from any folder.
+  - Inside a folder that *contains* Git projects, it offers to use one.
+  - In a plain folder, it shows exactly what a first commit would include and offers to create
+    the repository. Files over 50 MB, secret-like files, and nested projects are left out and
+    added to `.gitignore`. It refuses for the home folder, top-level folders, and very large
+    folders.
+  - When the checkout has uncommitted files, it offers to commit them (never secrets or large
+    files) or to hide untracked leftovers in `.git/info/exclude`, then continues. A build folder
+    is hidden as a whole only when it contains no tracked files.
 
 ### Added
 
