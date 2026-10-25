@@ -37,6 +37,14 @@ All notable changes to this project are documented here. The format follows
   - When the checkout has uncommitted files, it offers to commit them (never secrets or large
     files) or to hide untracked leftovers in `.git/info/exclude`, then continues. A build folder
     is hidden as a whole only when it contains no tracked files.
+- Like `claude`, `tua` works from where it is started.
+  - From a folder around a project, the AI can read that whole folder, but only edits its Git
+    copy. Claude Code gets `--add-dir` plus `Read` allow and `Edit` deny rules for it, and the
+    prompt says where the user started.
+  - From a project subfolder, the AI is told to focus there.
+  - A project chosen inside a folder is remembered.
+  - Home and system folders are never used as context.
+  - Schema migration 4 records `context_dir` and `start_dir`.
 
 ### Added
 

@@ -72,6 +72,11 @@ What should the AI do? > Add a --verbose flag to the CLI and a test for it
 
 The setup questions appear only the first time. After that, `tua` goes straight to the prompt.
 
+Like `claude`, it works from wherever you start it:
+- **Folder around a project** (for example `~/dev/FX1` containing the repository `fx1/`): the AI
+  edits a copy of the project and can also read, but never change, the rest of the folder.
+- **Project subfolder:** the AI is told to focus there.
+
 The same steps as individual commands, for scripts or more control:
 
 ```bash

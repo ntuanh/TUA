@@ -151,6 +151,22 @@ Verified with codex-cli 0.164.0 on a ChatGPT Go login. The user's default Codex 
   `workspace-write`) read a file outside its worktree by absolute path, while a Claude Code
   task was denied. This is documented, and TUA prints it at the start of every Codex task.
 
+## D20: The start folder is readable context, not editable
+
+To behave like `claude`, TUA tells the provider where the user started.
+
+- **Started outside the project:** that folder is passed as read-only context. For Claude Code
+  this means `--add-dir`, `Read(//dir/**)` allowed, and `Edit(//dir/**)` denied. Edits stay in
+  the task's Git worktree, so they can be reviewed, merged, or discarded. Files outside Git
+  (for example slides) cannot be safely undone.
+- **Started in a project subfolder:** the provider is told to focus there.
+- **Excluded:** the home folder, top-level folders, and folders containing TUA's own state
+  are never context.
+- **Live result.** Claude Code read a file in the context folder. Asked twice to edit it, it
+  declined because of TUA's built-in `tua.stay-in-worktree` rule, so the `Edit` deny rule
+  underneath was not triggered live. That deny mechanism was proven earlier for other
+  rules (D3).
+
 ## D19: Effort levels are validated by TUA
 
 Both CLIs accept an invalid effort value without failing: Claude Code prints a warning and uses

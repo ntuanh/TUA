@@ -20,7 +20,8 @@ how it keeps your files safe, and it sorts that out for you with a yes/no questi
 | Your folder | What `tua` does |
 |---|---|
 | is a Git project (or inside one) | uses it |
-| *contains* a Git project, like `FX1/` containing `fx1/` | "contains one: fx1/. Use it? [Y/n]" |
+| *contains* a Git project, like `FX1/` containing `fx1/` | asks "contains one: fx1/. Use it? [Y/n]" the first time only. The AI then edits a copy of `fx1` and can also **read** everything in `FX1/` (docs, reports), but never changes files there. |
+| a subfolder of a project, like `fx1/sw/drivers` | uses the project, and tells the AI to focus on that subfolder |
 | has no Git at all | shows what it would save, then "Make this folder a Git project now? [Y/n]". Files over 50 MB, secret-like files such as `.env`, and nested Git projects are left out and added to `.gitignore`. It never does this in your home folder. |
 | has uncommitted or leftover files | "[c] commit them  [i] hide them from Git on this laptop". Hiding never deletes anything, and secrets are never offered for commit. |
 
