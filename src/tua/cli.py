@@ -19,6 +19,7 @@ from tua.errors import (
     EXIT_ERROR,
     EXIT_OK,
     EXIT_TIMEOUT,
+    EXIT_USAGE,
     TuaError,
 )
 from tua.feedback import record_feedback
@@ -89,6 +90,12 @@ class App:
 
 
 # ------------------------------------------------------------------------- handlers
+
+
+def cmd_interactive(app: App, args: argparse.Namespace) -> int:
+    from tua.interactive import Session
+
+    return Session(app.db, app.paths, app.tasks()).run(Path.cwd())
 
 
 def cmd_doctor(app: App, args: argparse.Namespace) -> int:
@@ -514,7 +521,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"tua {__version__}")
     parser.add_argument("--debug", action="store_true", help="show tracebacks for internal errors")
-    sub = parser.add_subparsers(dest="command", metavar="<command>", required=True)
+    sub = parser.add_subparsers(
+        dest="command",
+        metavar="<command>",
+        required=False,
+        description="Run `tua` with no command inside a project folder for interactive mode.",
+    )
 
     p = sub.add_parser("doctor", help="check the environment and local state")
     p.set_defaults(handler=cmd_doctor)
@@ -637,6 +649,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     app = App(TuaPaths.from_env())
+    if args.command is None:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            parser.print_help()
+            return EXIT_USAGE
+        args.handler = cmd_interactive
     handler: Callable[[App, argparse.Namespace], int] = args.handler
     try:
         return handler(app, args)

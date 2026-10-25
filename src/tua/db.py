@@ -393,6 +393,12 @@ class Database:
             )
         return Project.from_row(row)
 
+    def find_project_by_root(self, root_path: str) -> Project | None:
+        row = self.conn.execute(
+            "SELECT * FROM projects WHERE root_path = ?", (root_path,)
+        ).fetchone()
+        return Project.from_row(row) if row is not None else None
+
     def get_project_by_id(self, project_id: int) -> Project:
         row = self.conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
         if row is None:
