@@ -28,6 +28,7 @@ scripts/dev-check.sh        # format check, lint, type check, tests, build
 
   ```bash
   TUA_LIVE_CLAUDE=1 TUA_LIVE_MODELS=haiku,sonnet python -m pytest tests/live -v -s
+  TUA_LIVE_CODEX=1 python -m pytest tests/live/test_live_codex.py -v -s   # model: gpt-6-luna
   ```
 
 - Add a failing test with every bug fix, and cover failure paths, not only the happy path. Never
@@ -35,8 +36,8 @@ scripts/dev-check.sh        # format check, lint, type check, tests, build
 
 ## Guidelines
 
-- Keep the v0.1 scope: no servers, daemons, extra providers, routing, or automatic skill
-  editing.
+- Keep the v0.1 scope: no servers, daemons, routing, or automatic skill editing. Add a
+  provider only when it can be tested against the real CLI.
 - Run external commands with argument lists only. Never use `shell=True`, and never use
   destructive Git commands.
 - Expected failures raise a `TuaError` subclass with an actionable hint.

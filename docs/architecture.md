@@ -33,7 +33,9 @@ tua (cli.py) ──► project registry (projects.py, config.py)
 | `skills.py` | Skill parsing, precedence resolution, deterministic compilation, hashing. |
 | `permissions.py` | Permission profiles to Claude Code allow/deny rules; eval command checks. |
 | `adapters/base.py` | The provider contract: `AdapterRequest` in, `AdapterResult` out. |
-| `adapters/claude_code.py` | Capability preflight, login check, invocation, normalization. |
+| `adapters/claude_code.py` | Claude Code: capability preflight, login check, invocation, normalization. |
+| `adapters/codex.py` | Codex: the same contract, using `codex exec --json` and Codex's sandbox. |
+| `peer_review.py` | `tua review`: read-only review tasks linked to the reviewed task. |
 | `process.py` | Process-group execution with timeout, cancellation, and bounded output. |
 | `tasks.py` | Task creation, preparation, execution, result recording, reconciliation. |
 | `review.py` | `diff`, `merge`, and `discard`, with all safety checks. |
@@ -80,8 +82,8 @@ tua (cli.py) ──► project registry (projects.py, config.py)
 - permission denials
 - error type and message
 
-Any value the CLI does not supply reliably is `None` ("unknown"). Adding another provider means
-implementing `detect`, `check_ready`, and `run`. v0.1 ships only Claude Code.
+Any value the CLI does not supply reliably is `None` ("unknown"). A provider implements `detect`,
+`check_ready`, `login_state`, and `run`. v0.1 ships Claude Code and Codex.
 
 ## Data model
 

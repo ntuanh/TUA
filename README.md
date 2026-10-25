@@ -1,12 +1,13 @@
 # TUA
 
 TUA is a local-first, terminal-first orchestration layer for running coding tasks through an
-existing AI coding CLI. Each task is one headless run of [Claude Code](https://code.claude.com/docs/en/cli-usage)
-inside its own Git worktree, started from a recorded commit. Every task gets a durable ID,
+existing AI coding CLI. Each task is one headless run of
+[Claude Code](https://code.claude.com/docs/en/cli-usage) or OpenAI Codex CLI inside its own Git
+worktree, started from a recorded commit. Every task gets a durable ID,
 fingerprinted skills (instructions), and a SQLite record of its whole lifecycle. You review the
 diff and explicitly merge or discard it. Nothing is ever pushed.
 
-> **Status: v0.1 (alpha).** One provider (Claude Code CLI), Linux first. The interfaces may
+> **Status: v0.1 (alpha).** Providers: Claude Code CLI and OpenAI Codex CLI. Linux first. The interfaces may
 > change. See [Limitations](#limitations).
 
 ## Features
@@ -34,6 +35,8 @@ diff and explicitly merge or discard it. Nothing is ever pushed.
 - Linux (primary target; macOS should mostly work but is untested), Python 3.10+, Git 2.25+.
 - Claude Code CLI on `PATH` and logged in (`claude auth login`). TUA was verified with
   Claude Code 2.1.301 and 2.1.310 and checks the exact flags it needs before every task.
+- Optional: Codex CLI on `PATH` and logged in (`codex login`), verified with 0.164.0 on a
+  ChatGPT plan. Plan-specific models apply; for example, ChatGPT Go worked with `gpt-6-luna`.
 
 ## Installation
 
@@ -74,9 +77,10 @@ them local.
 |---|---|
 | `tua --version`, `tua --help` | Version and help (`tua <command> --help` for each command) |
 | `tua doctor` | Diagnose Python, Git, Claude Code (version, flags, login), local state, projects |
-| `tua project init <PATH> --name <NAME>` | Create `.tua/project.yaml` if missing, validate, register |
+| `tua project init <PATH> --name <NAME> [--allow CMD ...]` | Create `.tua/project.yaml` if missing (optionally allowing commands such as tests), validate, register |
 | `tua project list` / `tua project show <NAME>` | List projects; show config, skills, hashes, permission rules |
-| `tua run "<PROMPT>" --project <NAME> [--model M] [--timeout S] [--max-turns N]` | Run one task |
+| `tua run "<PROMPT>" --project <NAME> [--model M] [--timeout S] [--max-turns N] [--profile read-only]` | Run one task (`--profile` can only narrow the project's permissions) |
+| `tua review <TASK_ID> [--provider P] [--model M] [--focus TEXT]` | Have a model review a task's changes, as a recorded read-only task |
 | `tua status [TASK_ID] [--project NAME] [--limit N]` | List tasks, or show one with its event log |
 | `tua diff <TASK_ID> [--stat]` | Changes against the base commit (works for failed tasks too) |
 | `tua merge <TASK_ID> [--yes] [--force] [-m MSG]` | Review and squash-merge locally; never pushes |
@@ -87,6 +91,8 @@ them local.
 
 Both `eval` commands also accept `--max-runs N`, `--max-seconds N`, `--yes`, and
 `--keep-worktrees`.
+
+`run` and `review` also accept `--provider claude-code|codex` and `--effort LEVEL`.
 
 `--yes` skips only the confirmation for completed tasks; the diff is still printed. `--force`
 lets you merge a failed, timed-out, or cancelled task. It always asks twice, the second time
@@ -103,8 +109,9 @@ Exit codes: `0` success, `1` error, failed task, or incomplete eval, `2` usage e
 schema_version: 1
 name: myrepo
 repository: "."
-default_provider: claude-code
-default_model: sonnet          # optional; passed to `claude --model`
+default_provider: claude-code  # or codex
+default_model: sonnet          # optional; passed to `claude --model` / `codex --model`
+effort: medium                 # optional; validated per provider
 timeout_seconds: 1800
 max_turns: 50                  # optional; passed to `claude --max-turns`
 permission_profile: safe       # safe | read-only
@@ -127,8 +134,11 @@ cannot silently widen permissions. Details: [docs/configuration.md](docs/configu
   `--setting-sources user`. Your own user settings still apply. Project and local settings from
   the repository are not loaded, so repository-provided hooks or allow rules cannot widen access.
   MCP servers are disabled with `--strict-mcp-config`.
-- **Permissions are not an OS sandbox.** An allowlisted command such as a test runner can run
-  arbitrary code from the repository. Keep `commands.allow` short and run TUA only on code you
+- **Claude Code permissions are not an OS sandbox.** An allowlisted command such as a test
+  runner can run arbitrary code from the repository.
+- **Codex tasks use Codex's OS sandbox instead.** `safe` maps to `workspace-write`, which
+  allows writes only to the worktree and `/tmp` and blocks the network. `read-only` maps to
+  `read-only`. Codex has no per-command allowlist, so `commands.allow` does not apply to it. Keep `commands.allow` short and run TUA only on code you
   are willing to execute.
 - TUA never reads credential files and reads only the `loggedIn` boolean from
   `claude auth status`. It refuses prompts that contain recognizable secrets, and it redacts
@@ -150,8 +160,11 @@ Directories are created with mode `0700` and files with mode `0600`.
 
 ## Limitations
 
-- One provider (Claude Code CLI). Tasks are single headless runs, with no conversation
-  follow-up inside TUA. You can resume a session with `claude --resume`; see `tua status <id>`.
+- Two providers (Claude Code, Codex). Gemini CLI is not supported: personal Google logins
+  are currently rejected for it. Tasks are single headless runs, with no conversation follow-up
+  inside TUA; `tua status <id>` shows how to resume the session in the provider CLI.
+- Codex does not report the model it actually used or a cost; TUA records the requested model
+  and leaves the rest unknown.
 - Merges only onto an unchanged base. If your branch moved, merge the kept `tua/<id>` branch
   yourself or discard and re-run the task.
 - Permission rules use prefix matching and Claude Code's own semantics. They are not a security

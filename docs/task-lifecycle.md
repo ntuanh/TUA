@@ -86,6 +86,24 @@ TUA uses one strategy, a squash commit with a fast-forward:
 
 Nothing is pushed. Interrupts are deferred during the short fast-forward and database update.
 
+## Reviews (`tua review`)
+
+`tua review <TASK_ID> [--model M] [--focus TEXT]` runs a second, ordinary task:
+
+1. TUA snapshots the reviewed task's result into a commit on top of its base. For a merged
+   task it uses the merged commit.
+2. The review task starts from that snapshot with the `read-only` profile, so the reviewer can
+   read files but cannot edit or run commands. Its prompt contains the original task prompt
+   and the diff (truncated beyond 60,000 characters).
+3. The review is recorded like any task: own ID, events, fingerprints, model metadata. It is
+   linked to the reviewed task through `review_of`, and `tua status <TASK_ID>` lists it.
+   The full review text is saved as `result.md` in the review's task directory.
+4. A completed review's worktree is discarded automatically when it contains no changes
+   (`--keep-worktree` keeps it). A failed review keeps it, like any failed task.
+
+Reviewing a review, an active task, a discarded task, or a task without changes is refused.
+A model review is an extra opinion, not a verdict.
+
 ## Recovery guide
 
 | Situation | What to do |

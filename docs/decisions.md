@@ -107,3 +107,49 @@ own merge commits add only a `TUA-Task-ID:` trailer and use the repository's con
 
 The repository already contained an Apache-2.0 `LICENSE`. It was preserved and declared in
 `pyproject.toml`.
+
+## D15: Reviews are read-only TUA tasks (added after the first real-use test run)
+
+Model-to-model reviews done outside TUA (`tua diff | claude -p`) left no record. `tua review`
+runs the reviewer as a normal task with the `read-only` profile on a snapshot commit of the
+reviewed result, linked by `review_of` (schema migration 2). The prompt asks the reviewer to
+label findings CONFIRMED or SUSPECTED and not to invent problems, because the test run showed a
+cross-model review raising a false alarm while missing a real bug.
+
+## D16: Per-task profiles may only narrow
+
+`tua run --profile` exists so a single task can run read-only. Allowing it to widen a
+`read-only` project to `safe` would let a command-line flag override the reviewed project
+policy, so that is refused.
+
+## D17: Cost is labelled as an API-equivalent estimate
+
+Claude Code reports `total_cost_usd` even on subscription plans, where nothing is billed per
+token. TUA shows it as an API-equivalent estimate, without reading more account details than
+the `loggedIn` boolean (D5).
+
+## D18: Codex adapter
+
+Verified with codex-cli 0.164.0 on a ChatGPT Go login. The user's default Codex model
+(`gpt-6.1-sol`) is not available on Go; `gpt-6-luna` is.
+
+- **Preflight.** The zero-cost preflight works as for Claude Code: unknown flags fail with
+  clap's `unexpected argument`, unknown `-c` keys fail with `unknown configuration field`
+  (`--strict-config`), and the full argv with an empty stdin stops at
+  `No prompt provided via stdin.`
+- **Skills.** They are injected with `-c developer_instructions=<TOML string>`. A live test
+  proved that a marker in that payload reached the model.
+- **Sandbox.** `safe` maps to `workspace-write` with network off, and `read-only` to
+  `read-only`. A live test proved that a write outside the worktree, under `$HOME`, was
+  blocked. The same probe under `/tmp` *succeeded*, because Codex keeps `/tmp` writable by
+  default. Worktrees normally live under `~/.local/state`, and the caveat is documented.
+- **Configuration.** `--ignore-user-config` and `--ignore-rules` keep user and repository Codex
+  configuration out of tasks.
+- **Unknown values.** Codex reports neither the model it used nor a cost, so TUA stores them
+  as unknown.
+
+## D19: Effort levels are validated by TUA
+
+Both CLIs accept an invalid effort value without failing: Claude Code prints a warning and uses
+its default, and Codex does not check `model_reasoning_effort`. TUA validates `effort` per
+provider and records it on each task (schema migration 3).

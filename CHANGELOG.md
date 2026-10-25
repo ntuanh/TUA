@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [0.1.0] - Unreleased
 
+### Added after the first real-use test run
+
+- `tua review <ID> [--model M] [--focus TEXT]`: a recorded, read-only review task linked to
+  the reviewed task (schema migration 2 adds `tasks.review_of`).
+- `tua run --profile read-only`: per-task profile that can only narrow the project's profile.
+- `tua project init --allow CMD`: seed `commands.allow` (for example the test command).
+- The full redacted provider answer is saved as `result.md` in the task directory.
+- Cost is shown as an API-equivalent estimate; subscriptions are not billed per token.
+- Codex CLI adapter (`default_provider: codex` or `--provider codex`):
+  - skills passed as developer instructions
+  - permissions from Codex's OS sandbox
+  - the same zero-cost preflight and lifecycle handling as Claude Code
+- `effort` setting and `--effort` flag, validated per provider and recorded per task (schema
+  migration 3).
+- `tua review --provider` enables cross-provider reviews, for example Codex reviewing a Claude
+  task.
+- `tua doctor` also checks Codex when it is installed.
+
 ### Added
 
 - `tua` CLI:

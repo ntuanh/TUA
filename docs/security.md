@@ -13,6 +13,8 @@ controls. None of them is a complete sandbox, and this page says exactly what ea
 | No unreviewed merges | Diff shown plus explicit confirmation; force-merges need a typed second confirmation | TUA code |
 | No permission bypass | `--dangerously-skip-permissions` and `bypassPermissions` are refused by an argv guard | TUA code, tested |
 | Default-deny tools | `--permission-mode dontAsk` and `--permission-prompts none` | Claude Code |
+| Codex OS sandbox | `workspace-write` (worktree and `/tmp` writable, no network) or `read-only`; approvals `never` | Codex |
+| No Codex bypass | `--dangerously-bypass-*`, `--approve-for-me`, and `danger-full-access` are refused by an argv guard | TUA code, tested |
 | Edits confined to the worktree | `Edit(//<worktree>/**)` is the only edit allow rule | Claude Code |
 | Command allowlist | `Bash(<prefix>)` rules from `commands.allow`; deny rules win | Claude Code |
 | No web tools | `WebFetch` and `WebSearch` denied in settings and with `--disallowedTools` | Claude Code |
@@ -36,16 +38,20 @@ security boundary.
   other command form slips through.
 - **User-level settings still apply.** Your `~/.claude/settings.json` allow rules and hooks are
   loaded, because they are your own choices. TUA's deny rules still take precedence.
-- **No OS isolation.** There are no containers, namespaces, or network filtering. Run TUA only
-  on repositories whose code you are willing to execute.
+- **No OS isolation for Claude Code tasks.** There are no containers, namespaces, or network
+  filtering. Run TUA only on repositories whose code you are willing to execute.
+- **Codex's sandbox has its own limits.** Commands may write to `/tmp`, and TUA cannot enforce
+  `commands.allow`/`deny` for Codex. The compiled skills are passed on the command line, so
+  they are visible in the process list. They are not secrets.
 - **Escaped processes.** A process that leaves the provider's process group (for example with
   `setsid`) is not stopped by timeout or cancellation.
 
 ## Secrets
 
 - **No credential access.** TUA never reads, copies, or logs provider credentials, SSH keys, Git
-  credential stores, or `.env` files. Login is checked with `claude auth status --json`, and only
-  the `loggedIn` boolean is read. Account details in that output are discarded.
+  credential stores, or `.env` files. Login is checked with `claude auth status --json`, where
+  only the `loggedIn` boolean is read, and with `codex login status`, where only the exit status
+  and leading words are read. Account details in that output are discarded.
 - **Prompts.** Prompts, eval prompts, and feedback containing recognizable secrets are refused.
   The recognized formats are private keys, GitHub, Anthropic, OpenAI, AWS, Slack, and Google
   keys, JWTs, and credentials embedded in URLs.

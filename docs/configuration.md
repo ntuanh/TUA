@@ -11,10 +11,11 @@ that point outside the root are rejected, and so are unknown keys.
 | `schema_version` | required | Must be `1`. |
 | `name` | required | 1-64 characters: `a-z`, `0-9`, `.`, `_`, `-`. Must match `--name`. |
 | `repository` | `"."` | Must be `"."` in v0.1. |
-| `default_provider` | `claude-code` | The only supported provider. |
-| `default_model` | CLI default | Alias passed to `claude --model` (for example `sonnet`). `tua run --model` overrides it. |
+| `default_provider` | `claude-code` | `claude-code` or `codex`. `tua run --provider` overrides it for one task. |
+| `default_model` | CLI default | Passed to `claude --model` (for example `sonnet`) or `codex --model` (for example `gpt-6-luna`). `tua run --model` overrides it. |
+| `effort` | CLI default | Reasoning effort. Claude Code: `low`, `medium`, `high`, `xhigh`, `max`. Codex: `minimal`, `low`, `medium`, `high`, `xhigh`. TUA validates it because neither CLI rejects unknown values. `tua run --effort` overrides it. |
 | `timeout_seconds` | `1800` | Wall-clock limit per task (1 to 86400). `tua run --timeout` overrides it. |
-| `max_turns` | CLI default | Passed to `claude --max-turns` (1 to 1000). |
+| `max_turns` | CLI default | Passed to `claude --max-turns` (1 to 1000). Codex has no equivalent. |
 | `permission_profile` | `safe` | `safe` or `read-only` (see below). |
 | `skills` | `[]` | Project skill files (`.md`), compiled in this order. |
 | `eval_dir` | `.tua/evals` | Eval suites must live under this directory. |
@@ -47,6 +48,8 @@ permissions.
 
 ## Permission profiles
 
+### Claude Code
+
 Both profiles run Claude Code with `--permission-mode dontAsk`, so anything not explicitly allowed
 is denied rather than prompted.
 
@@ -65,6 +68,33 @@ Both profiles also deny:
 - TUA's private state: the database, logs, task logs, and eval artifacts
 
 Use `tua project show <NAME>` to see the exact rules.
+
+### Codex
+
+Codex tasks use Codex's own OS sandbox rather than tool rules:
+
+| Profile | Codex sandbox | Effect |
+|---|---|---|
+| `safe` | `workspace-write`, network off | Commands may write only inside the worktree and `/tmp` (Codex's default writable roots). |
+| `read-only` | `read-only` | Commands can read but not write anywhere. |
+
+TUA always passes:
+
+- `approval_policy="never"`, so nothing waits for a person
+- `--ignore-user-config` and `--ignore-rules`, so your Codex config and exec rules, and any
+  rules from the repository, do not apply
+- `--strict-config`
+
+Codex has no per-command allowlist, so `commands.allow` and `commands.deny` are **not** enforced
+for Codex tasks. TUA prints a note when a Codex task runs in a project that allowlists
+commands.
+
+`tua run --profile read-only` applies a narrower profile to one task. A per-task profile can
+only restrict the project's profile; `--profile safe` on a `read-only` project is refused.
+
+`tua project init <PATH> --name <NAME> --allow "python -m pytest"` seeds `commands.allow`
+when it creates the config file, so the provider can run your tests from the start. It is
+refused if the config file already exists; edit that file instead.
 
 ## Skills
 
