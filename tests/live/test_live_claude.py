@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import git
-from tua.adapters.claude_code import ClaudeCodeAdapter
+from tua.adapters import create_adapter
 from tua.db import Database
 from tua.models import TaskStatus
 from tua.paths import TuaPaths
@@ -79,7 +79,10 @@ def test_live_headless_task(tmp_path: Path, db: Database, paths: TuaPaths, model
     init_project(db, paths, repo, "live")
 
     service = TaskService(
-        db, paths, lambda: ClaudeCodeAdapter(scratch_dir=paths.tmp_dir), on_progress=print
+        db,
+        paths,
+        lambda provider: create_adapter(provider, scratch_dir=paths.tmp_dir),
+        on_progress=print,
     )
     task = service.run("live", RunOptions(prompt=PROMPT))
     print(f"\nstatus={task.status.value} error={task.error_type}: {task.error_message}")

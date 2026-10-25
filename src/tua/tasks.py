@@ -13,6 +13,7 @@ timed-out, cancelled, or interrupted task is always kept for inspection.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import logging
@@ -25,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from tua.adapters.base import AdapterRequest, AdapterResult, ProviderAdapter
-from tua.config import ProjectConfig, load_global_config
+from tua.config import ProjectConfig, check_effort, check_provider, load_global_config
 from tua.db import Database
 from tua.errors import (
     ConfigError,
@@ -39,8 +40,8 @@ from tua.errors import (
 )
 from tua.logging_utils import LOGGER_NAME, detect_secrets, log_event
 from tua.models import ErrorType, Task, TaskStatus, utc_now
-from tua.paths import TuaPaths, ensure_private_dir
-from tua.permissions import build_plan, write_settings
+from tua.paths import TuaPaths, ensure_private_dir, write_private_file
+from tua.permissions import build_plan, narrow_profile, write_settings
 from tua.process import (
     CancelRequested,
     cancellation_signals,
@@ -56,9 +57,11 @@ from tua.skills import compile_project_skills, store_compiled, verify_compiled_f
 from tua.worktrees import create_worktree, task_branch_name
 
 MAX_PROMPT_CHARS = 100_000
+MAX_RESULT_CHARS = 1_000_000
 ID_ATTEMPTS = 5
 
-AdapterFactory = Callable[[], ProviderAdapter]
+# Builds the adapter for a provider name ("claude-code" or "codex").
+AdapterFactory = Callable[[str], ProviderAdapter]
 
 
 def new_task_id() -> str:
@@ -75,6 +78,11 @@ class RunOptions:
     base_commit: str | None = None
     require_clean: bool = True
     eval_run_id: str | None = None
+    # May only narrow the project's profile (for example safe -> read-only).
+    permission_profile: str | None = None
+    review_of: str | None = None
+    provider: str | None = None
+    effort: str | None = None
 
 
 def validate_prompt(prompt: str) -> str:
@@ -129,6 +137,14 @@ class TaskService:
         timeout = options.timeout_seconds or config.timeout_seconds
         model = options.model or config.default_model
         max_turns = options.max_turns or config.max_turns
+        profile = narrow_profile(config.permission_profile, options.permission_profile)
+        provider = check_provider(options.provider or config.default_provider)
+        # The project's effort level applies only to the project's own provider.
+        default_effort = config.effort if provider == config.default_provider else None
+        effort = check_effort(provider, options.effort or default_effort)
+        config = dataclasses.replace(
+            config, permission_profile=profile, default_provider=provider, effort=effort
+        )
 
         task = self._create(
             project_id=project.id,
@@ -141,6 +157,7 @@ class TaskService:
             model=model,
             max_turns=max_turns,
             eval_run_id=options.eval_run_id,
+            review_of=options.review_of,
         )
         self.on_progress(
             f"Task {task.id} created for project '{project.name}' "
@@ -165,6 +182,7 @@ class TaskService:
         model: str | None,
         max_turns: int | None,
         eval_run_id: str | None,
+        review_of: str | None,
     ) -> Task:
         last_error: Exception | None = None
         for _ in range(ID_ATTEMPTS):
@@ -185,7 +203,9 @@ class TaskService:
                 "config_fingerprint": config.fingerprint,
                 "timeout_seconds": timeout,
                 "max_turns": max_turns,
+                "effort": config.effort,
                 "eval_run_id": eval_run_id,
+                "review_of": review_of,
                 "runner_pid": os.getpid(),
                 "runner_host": hostname(),
                 "runner_start": process_identity(os.getpid()),
@@ -205,20 +225,30 @@ class TaskService:
         try:
             compiled = compile_project_skills(config, load_global_config(self.paths))
             compiled_path = store_compiled(self.paths, compiled)
-            plan = build_plan(
-                config.permission_profile,
-                worktree=worktree,
-                commands=config.commands,
-                paths=self.paths,
-            )
-            settings_path = write_settings(plan, task_dir / "claude-settings.json")
+            settings_path: Path | None = None
+            permission_mode = ""
+            cli_deny: tuple[str, ...] = ()
+            if task.provider == "claude-code":
+                plan = build_plan(
+                    config.permission_profile,
+                    worktree=worktree,
+                    commands=config.commands,
+                    paths=self.paths,
+                )
+                settings_path = write_settings(plan, task_dir / "claude-settings.json")
+                permission_mode, cli_deny = plan.permission_mode, plan.cli_deny
+            elif config.commands.allow:
+                self.on_progress(
+                    f"Note: {task.provider} enforces permissions with its OS sandbox "
+                    f"({config.permission_profile}); commands.allow is not used per command."
+                )
             task = self.db.update_task(
                 task.id,
                 {
                     "source_skill_hash": compiled.source_hash,
                     "compiled_skill_hash": compiled.compiled_hash,
                     "compiled_skill_path": str(compiled_path),
-                    "settings_path": str(settings_path),
+                    "settings_path": str(settings_path) if settings_path else None,
                 },
             )
             request = AdapterRequest(
@@ -228,14 +258,16 @@ class TaskService:
                 compiled_skill_path=compiled_path,
                 compiled_skill_hash=compiled.compiled_hash,
                 settings_path=settings_path,
-                permission_mode=plan.permission_mode,
-                cli_deny=plan.cli_deny,
+                permission_mode=permission_mode,
+                cli_deny=cli_deny,
                 output_dir=task_dir,
                 timeout_seconds=task.timeout_seconds,
                 model=task.model_alias,
                 max_turns=task.max_turns,
+                permission_profile=task.permission_profile,
+                effort=task.effort,
             )
-            adapter = self.adapter_factory()
+            adapter = self.adapter_factory(task.provider)
             info = adapter.detect()
             task = self.db.update_task(
                 task.id, {"cli_path": info.path, "cli_version": info.version}
@@ -307,6 +339,11 @@ class TaskService:
         }
         if result.status is TaskStatus.CANCELLED:
             metadata["signal"] = last_signal_name()
+        if result.result_text:
+            write_private_file(
+                self.paths.task_dir(task_id) / "result.md",
+                result.result_text[:MAX_RESULT_CHARS].encode("utf-8"),
+            )
         # Do not let a second Ctrl+C interrupt the final, small database write.
         with deferred_interrupts():
             task = self.db.transition(task_id, result.status, fields=fields, metadata=metadata)

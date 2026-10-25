@@ -85,7 +85,8 @@ def test_help_does_not_create_state(paths: TuaPaths) -> None:
 def test_doctor_reports_without_leaking_account_details(fake_claude: FakeClaude) -> None:
     result = tua("doctor")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "claude 2.1.301" in result.stdout
+    assert "claude-code 2.1.301" in result.stdout
+    assert "codex: not installed (optional)" in result.stdout
     assert "headless flags accepted" in result.stdout
     assert "logged in" in result.stdout
     for canary in ("leak-canary@example.invalid", "Leak Canary Org"):
@@ -268,3 +269,32 @@ def test_eval_cli_end_to_end(repo: Path, fake_claude: FakeClaude, paths: TuaPath
     rows = db.fetch_all("SELECT kind, status FROM eval_runs ORDER BY started_at")
     db.close()
     assert [tuple(r) for r in rows] == [("baseline", "complete"), ("candidate", "complete")]
+
+
+def test_review_and_profile_cli(repo: Path, fake_claude: FakeClaude, paths: TuaPaths) -> None:
+    init = tua("project", "init", str(repo), "--name", "demo", "--allow", "python -m pytest")
+    assert init.returncode == 0, init.stderr
+    assert "python -m pytest" in init.stdout
+    git(repo, "add", ".tua")
+    git(repo, "commit", "-q", "-m", "tua config")
+
+    run = tua("run", "Create hello.txt", "--project", "demo")
+    assert run.returncode == 0, run.stderr
+    assert "API-equivalent estimate" in run.stdout
+    db = Database.open(paths.db_path)
+    (task,) = db.list_tasks()
+    db.close()
+
+    fake_claude.configure(mode="success", write_files={}, result="CONFIRMED low: no test.")
+    review = tua("review", task.id, "--model", "sonnet")
+    assert review.returncode == 0, review.stdout + review.stderr
+    assert "CONFIRMED low: no test." in review.stdout
+    assert "extra opinion, not a verdict" in review.stdout
+    detail = tua("status", task.id)
+    assert "Reviews:" in detail.stdout
+    listing = tua("status")
+    assert f"[review of {task.id}]" in listing.stdout
+
+    read_only = tua("run", "Explain the code", "--project", "demo", "--profile", "read-only")
+    assert read_only.returncode == 0, read_only.stderr
+    assert tua("run", "x", "--project", "demo", "--profile", "admin").returncode == 2

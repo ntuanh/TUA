@@ -324,10 +324,12 @@ class ReviewService:
                 raise AbortedError("nothing was removed")
             return self._cleanup(task, repo, expected_tree=None)
 
-        self.out(f"Discarding task {task.id} ({task.status.value}) removes:")
-        self.out(f"  worktree {worktree}" + ("" if worktree.exists() else " (already gone)"))
-        self.out(f"  branch   {task.task_branch}")
-        if worktree.is_dir():
+        automated = assume_yes and reason is not None  # eval/review cleanup: no preview
+        if not automated:
+            self.out(f"Discarding task {task.id} ({task.status.value}) removes:")
+            self.out(f"  worktree {worktree}" + ("" if worktree.exists() else " (already gone)"))
+            self.out(f"  branch   {task.task_branch}")
+        if worktree.is_dir() and not automated:
             try:
                 stat = task_diff(task, self.paths).stat or "  (none)\n"
             except TuaError as exc:

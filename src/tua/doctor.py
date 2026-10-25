@@ -1,7 +1,8 @@
 """``tua doctor``: actionable environment diagnostics that never print secrets.
 
-Authentication is checked only through ``claude auth status --json`` and only its
-``loggedIn`` boolean is read. Environment variables and credential files are never read.
+Authentication is checked only through ``claude auth status --json`` (only its
+``loggedIn`` boolean is read) and ``codex login status`` (only its exit status and leading
+words). Environment variables and credential files are never read.
 """
 
 from __future__ import annotations
@@ -10,14 +11,14 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 from tua import __version__
-from tua.adapters.base import AdapterRequest
-from tua.adapters.claude_code import ClaudeCodeAdapter
+from tua.adapters.base import AdapterRequest, ProviderAdapter
 from tua.config import CommandPolicy, load_global_config
 from tua.db import SCHEMA_VERSION, Database
 from tua.errors import ProviderError, TuaError
-from tua.models import TaskStatus
+from tua.models import ErrorType, TaskStatus
 from tua.paths import TuaPaths, is_private
 from tua.permissions import build_plan, write_settings
 from tua.projects import load_registered
@@ -25,6 +26,10 @@ from tua.repository import MIN_GIT_VERSION, git_version
 from tua.skills import builtin_source, compile_sources, store_compiled
 
 OK, WARN, FAIL = "ok", "warn", "fail"
+
+
+class AdapterBuilder(Protocol):
+    def __call__(self, provider: str, *, scratch_dir: Path) -> ProviderAdapter: ...
 
 
 @dataclass(frozen=True)
@@ -49,14 +54,19 @@ def _check_git() -> Check:
     return Check(OK, f"git {rendered}")
 
 
-def _check_claude(paths: TuaPaths, adapter: ClaudeCodeAdapter) -> list[Check]:
+def _check_provider(
+    provider: str, factory: AdapterBuilder, scratch: Path, *, required: bool
+) -> list[Check]:
+    adapter = factory(provider, scratch_dir=scratch)
     try:
         info = adapter.detect()
     except ProviderError as exc:
-        return [Check(FAIL, exc.message, exc.hint)]
-    checks = [Check(OK, f"claude {info.version} at {info.path}")]
-    # Preflight the exact flag set a task uses, against throwaway files. No input is
-    # given, so the CLI cannot call the API.
+        if required or exc.error_type != ErrorType.CLI_MISSING.value:
+            return [Check(FAIL, exc.message, exc.hint)]
+        return [Check(OK, f"{provider}: not installed (optional)")]
+    checks = [Check(OK, f"{provider} {info.version} at {info.path}")]
+    # Preflight the exact flag set a task uses, against throwaway files. No prompt is
+    # given, so the CLI cannot call any service.
     with tempfile.TemporaryDirectory(prefix="tua-doctor-") as tmp:
         tmp_path = Path(tmp)
         compiled = compile_sources([builtin_source()])
@@ -75,33 +85,31 @@ def _check_claude(paths: TuaPaths, adapter: ClaudeCodeAdapter) -> list[Check]:
             worktree=tmp_path,
             compiled_skill_path=compiled_path,
             compiled_skill_hash=compiled.compiled_hash,
-            settings_path=settings,
+            settings_path=settings if provider == "claude-code" else None,
             permission_mode=plan.permission_mode,
             cli_deny=plan.cli_deny,
             output_dir=tmp_path,
             timeout_seconds=30,
-            max_turns=1,
+            max_turns=1 if provider == "claude-code" else None,
         )
         try:
             adapter.check_ready(request)
         except ProviderError as exc:
             checks.append(Check(FAIL, exc.message, exc.hint))
             return checks
-    checks.append(
-        Check(
-            OK,
-            "headless flags accepted (--print --output-format json "
-            "--append-system-prompt-file --permission-mode dontAsk --settings ...)",
-        )
-    )
-    logged_in = adapter.auth_logged_in(info.path)
-    if logged_in is None:
-        checks.append(
-            Check(WARN, "could not determine Claude Code login state", "Run `claude auth status`.")
-        )
+    checks.append(Check(OK, f"{provider}: headless flags accepted ({_FLAGS[provider]})"))
+    if adapter.login_state(info.path) is None:
+        checks.append(Check(WARN, f"could not determine the {provider} login state"))
     else:
-        checks.append(Check(OK, "claude authentication: logged in"))
+        checks.append(Check(OK, f"{provider} authentication: logged in"))
     return checks
+
+
+_FLAGS = {
+    "claude-code": "--print --output-format json --append-system-prompt-file "
+    "--permission-mode dontAsk --settings ...",
+    "codex": "exec --json --sandbox workspace-write -c developer_instructions=... ...",
+}
 
 
 def _check_dirs(paths: TuaPaths) -> list[Check]:
@@ -193,9 +201,10 @@ def _check_state(paths: TuaPaths) -> list[Check]:
     return checks
 
 
-def run_doctor(paths: TuaPaths, adapter: ClaudeCodeAdapter) -> list[Check]:
+def run_doctor(paths: TuaPaths, factory: AdapterBuilder, scratch: Path) -> list[Check]:
     checks = [_check_python(), _check_git()]
-    checks.extend(_check_claude(paths, adapter))
+    checks.extend(_check_provider("claude-code", factory, scratch, required=True))
+    checks.extend(_check_provider("codex", factory, scratch, required=False))
     checks.extend(_check_dirs(paths))
     checks.extend(_check_state(paths))
     return checks

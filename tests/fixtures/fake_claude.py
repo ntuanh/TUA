@@ -27,6 +27,7 @@ KNOWN_FLAGS = {
     "--strict-mcp-config": 0,
     "--model": 1,
     "--max-turns": 1,
+    "--effort": 1,
     "--disallowedTools": -1,  # variadic
 }
 PERMISSION_MODES = ["acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"]

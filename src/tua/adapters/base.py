@@ -17,13 +17,16 @@ class AdapterRequest:
     worktree: Path
     compiled_skill_path: Path
     compiled_skill_hash: str
-    settings_path: Path
+    # Claude Code permission plan; None for providers that use their own sandbox.
+    settings_path: Path | None
     permission_mode: str
     cli_deny: tuple[str, ...]
     output_dir: Path
     timeout_seconds: int
     model: str | None = None
     max_turns: int | None = None
+    permission_profile: str = "safe"
+    effort: str | None = None
 
 
 @dataclass(frozen=True)
@@ -48,6 +51,8 @@ class AdapterResult:
     error_type: ErrorType | None = None
     error_message: str | None = None
     result_excerpt: str | None = None
+    # Full final answer, already redacted; stored as result.md in the task directory.
+    result_text: str | None = None
     actual_models: tuple[str, ...] | None = None
     session_id: str | None = None
     num_turns: int | None = None
@@ -65,6 +70,9 @@ class ProviderAdapter(Protocol):
 
     def check_ready(self, request: AdapterRequest) -> None:
         """Verify flags and authentication without using quota; raise ProviderError."""
+
+    def login_state(self, cli_path: str) -> bool | None:
+        """True/False when the login state is known, None when it cannot be determined."""
 
     def run(
         self, request: AdapterRequest, *, on_start: Callable[[int], None] | None = None

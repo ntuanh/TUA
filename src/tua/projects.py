@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
@@ -14,6 +16,8 @@ from tua.config import (
     ProjectConfig,
     load_global_config,
     load_project_config,
+    parse_command,
+    parse_project_config,
     project_config_path,
 )
 from tua.db import Database
@@ -46,11 +50,26 @@ class InitResult:
     created_files: tuple[Path, ...]
 
 
-def init_project(db: Database, paths: TuaPaths, path: Path, name: str) -> InitResult:
+def _render_config(name: str, allow: Sequence[str], root: Path, config_file: Path) -> str:
+    """Render the template and validate the complete result before anything is written."""
+    text = Template(_template("project.yaml")).substitute(name=name)
+    if allow:
+        for entry in allow:
+            parse_command(entry, source=config_file, key="--allow")
+        items = "".join(f"    - {json.dumps(entry)}\n" for entry in allow)
+        text = text.replace("  allow: []\n", f"  allow:\n{items}", 1)
+    parse_project_config(text.encode("utf-8"), root=root, config_path=config_file)
+    return text
+
+
+def init_project(
+    db: Database, paths: TuaPaths, path: Path, name: str, *, allow: Sequence[str] = ()
+) -> InitResult:
     """Create ``.tua/project.yaml`` if missing, validate it, and register the project.
 
     Existing files are never overwritten. Re-running init for an already registered
-    project re-validates it and records the current config fingerprint.
+    project re-validates it and records the current config fingerprint. ``allow`` seeds
+    ``commands.allow`` and is only accepted when the config file is being created.
     """
     if not NAME_RE.match(name):
         raise ConfigError(
@@ -60,12 +79,18 @@ def init_project(db: Database, paths: TuaPaths, path: Path, name: str) -> InitRe
     root = Repository.open(path.expanduser().resolve()).root
     config_file = project_config_path(root)
     created: list[Path] = []
+    if config_file.exists() and allow:
+        raise ConfigError(
+            f"{config_file} already exists; --allow only applies when creating it",
+            hint="Edit commands.allow in that file, then run `tua project init` again.",
+        )
     if not config_file.exists():
+        content = _render_config(name, allow, root, config_file)
         skill_file = root / DEFAULT_SKILL_RELPATH
         if not skill_file.exists():
             _create_exclusive(skill_file, _template("project-skill.md"))
             created.append(skill_file)
-        _create_exclusive(config_file, Template(_template("project.yaml")).substitute(name=name))
+        _create_exclusive(config_file, content)
         created.append(config_file)
 
     config = load_project_config(root)

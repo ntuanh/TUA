@@ -32,6 +32,27 @@ SENSITIVE_HOME_PATHS = (
     "~/.claude.json",
 )
 NETWORK_TOOLS = ("WebFetch", "WebSearch")
+# Profiles ordered from least to most access.
+PROFILE_RANK = {"read-only": 0, "safe": 1}
+
+
+def narrow_profile(configured: str, requested: str | None) -> str:
+    """Apply a per-task profile, which may restrict but never widen the project's."""
+    if requested is None:
+        return configured
+    if requested not in PROFILE_RANK:
+        raise ConfigError(
+            f"unknown permission profile {requested!r}",
+            hint=f"Choose one of: {', '.join(PROFILE_RANK)}.",
+        )
+    if PROFILE_RANK[requested] > PROFILE_RANK[configured]:
+        raise ConfigError(
+            f"--profile {requested} would widen the project's '{configured}' profile",
+            hint="Change permission_profile in .tua/project.yaml (and re-register) instead.",
+        )
+    return requested
+
+
 EDIT_TOOLS_DENY = ("Edit", "Write", "NotebookEdit")
 
 

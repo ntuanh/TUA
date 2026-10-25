@@ -1,5 +1,5 @@
 """Shared fixtures. Every test runs with isolated HOME, XDG, and Git configuration, and with
-any real ``claude`` executable removed from PATH so no test can use a real account."""
+any real ``claude`` or ``codex`` executable removed from PATH so no test can use a real account."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from tua.adapters.claude_code import ClaudeCodeAdapter
+from tua.adapters import ProviderAdapter, create_adapter
 from tua.db import Database
 from tua.logging_utils import LOGGER_NAME
 from tua.paths import TuaPaths
@@ -54,7 +54,7 @@ def isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     safe_path = [
         entry
         for entry in os.environ.get("PATH", "").split(os.pathsep)
-        if entry and not (Path(entry) / "claude").exists()
+        if entry and not any((Path(entry) / name).exists() for name in ("claude", "codex"))
     ]
     monkeypatch.setenv("PATH", os.pathsep.join(safe_path))
 
@@ -133,7 +133,36 @@ def project(db: Database, paths: TuaPaths, repo: Path) -> str:
 
 @pytest.fixture
 def service(db: Database, paths: TuaPaths) -> TaskService:
-    def factory() -> ClaudeCodeAdapter:
-        return ClaudeCodeAdapter(scratch_dir=paths.tmp_dir, grace_seconds=2.0)
+    def factory(provider: str) -> ProviderAdapter:
+        return create_adapter(provider, scratch_dir=paths.tmp_dir, grace_seconds=2.0)
 
     return TaskService(db, paths, factory)
+
+
+@dataclass
+class FakeCodex:
+    control_path: Path
+    log_path: Path
+
+    def configure(self, **settings: Any) -> None:
+        self.control_path.write_text(json.dumps(settings))
+
+    def calls(self) -> list[dict[str, Any]]:
+        if not self.log_path.exists():
+            return []
+        return [json.loads(line) for line in self.log_path.read_text().splitlines()]
+
+
+@pytest.fixture
+def fake_codex(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeCodex:
+    bin_dir = tmp_path / "fakecodexbin"
+    bin_dir.mkdir()
+    script = bin_dir / "codex"
+    script.write_text(f"#!{sys.executable}\n" + (FIXTURES / "fake_codex.py").read_text())
+    script.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    fake = FakeCodex(tmp_path / "fake-codex.json", tmp_path / "fake-codex.jsonl")
+    monkeypatch.setenv("FAKE_CODEX_CONTROL", str(fake.control_path))
+    monkeypatch.setenv("FAKE_CODEX_LOG", str(fake.log_path))
+    fake.configure(mode="success")
+    return fake

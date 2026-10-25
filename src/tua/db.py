@@ -27,7 +27,7 @@ from tua.models import (
 )
 from tua.paths import create_private_file, ensure_private_dir
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 _STATUSES = ", ".join(f"'{s.value}'" for s in TaskStatus)
 _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
@@ -250,7 +250,16 @@ _MIGRATION_1 = [
     """,
 ]
 
-MIGRATIONS: dict[int, list[str]] = {1: _MIGRATION_1}
+# v2: a task can be a read-only review of another task (`tua review`).
+_MIGRATION_2 = [
+    "ALTER TABLE tasks ADD COLUMN review_of TEXT REFERENCES tasks(id)",
+    "CREATE INDEX idx_tasks_review_of ON tasks(review_of)",
+]
+
+# v3: tasks record the reasoning effort they ran with.
+_MIGRATION_3 = ["ALTER TABLE tasks ADD COLUMN effort TEXT"]
+
+MIGRATIONS: dict[int, list[str]] = {1: _MIGRATION_1, 2: _MIGRATION_2, 3: _MIGRATION_3}
 
 _CORRUPT_HINT = (
     "Move the file aside (for example `mv {path} {path}.broken`) and run the command again "
@@ -445,6 +454,12 @@ class Database:
             sql += " LIMIT ?"
             params.append(limit)
         return [Task.from_row(r) for r in self.conn.execute(sql, params).fetchall()]
+
+    def list_reviews(self, task_id: str) -> list[Task]:
+        rows = self.conn.execute(
+            "SELECT * FROM tasks WHERE review_of = ? ORDER BY created_at, id", (task_id,)
+        ).fetchall()
+        return [Task.from_row(r) for r in rows]
 
     def update_task(self, task_id: str, fields: Mapping[str, Any]) -> Task:
         """Update non-status task fields (status changes must use :meth:`transition`)."""

@@ -130,6 +130,8 @@ class Task:
     merged_commit: str | None
     cleanup_status: str | None
     cleanup_error: str | None
+    review_of: str | None
+    effort: str | None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> Task:

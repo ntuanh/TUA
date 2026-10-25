@@ -10,8 +10,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from tua import __version__
-from tua.adapters.claude_code import ClaudeCodeAdapter
-from tua.config import CommandPolicy, load_global_config
+from tua.adapters import ProviderAdapter, create_adapter
+from tua.config import SUPPORTED_PROVIDERS, CommandPolicy, load_global_config
 from tua.db import Database
 from tua.doctor import FAIL, OK, WARN, run_doctor
 from tua.errors import (
@@ -25,6 +25,7 @@ from tua.feedback import record_feedback
 from tua.logging_utils import LOGGER_NAME, setup_logging
 from tua.models import RETAINED_STATES, Task, TaskStatus
 from tua.paths import TuaPaths
+from tua.peer_review import run_review
 from tua.permissions import build_plan
 from tua.projects import init_project, load_registered
 from tua.review import ReviewService, task_diff
@@ -73,8 +74,8 @@ class App:
             self._db = Database.open(self.paths.db_path)
         return self._db
 
-    def adapter(self) -> ClaudeCodeAdapter:
-        return ClaudeCodeAdapter(scratch_dir=self.paths.tmp_dir)
+    def adapter(self, provider: str = "claude-code") -> ProviderAdapter:
+        return create_adapter(provider, scratch_dir=self.paths.tmp_dir)
 
     def tasks(self) -> TaskService:
         return TaskService(self.db, self.paths, self.adapter, on_progress=out)
@@ -91,7 +92,7 @@ class App:
 
 
 def cmd_doctor(app: App, args: argparse.Namespace) -> int:
-    checks = run_doctor(app.paths, app.adapter())
+    checks = run_doctor(app.paths, create_adapter, app.paths.tmp_dir)
     out("TUA doctor")
     marks = {OK: "[ok]  ", WARN: "[warn]", FAIL: "[FAIL]"}
     for check in checks:
@@ -104,10 +105,12 @@ def cmd_doctor(app: App, args: argparse.Namespace) -> int:
 
 
 def cmd_project_init(app: App, args: argparse.Namespace) -> int:
-    result = init_project(app.db, app.paths, Path(args.path), args.name)
+    result = init_project(app.db, app.paths, Path(args.path), args.name, allow=args.allow or ())
     for path in result.created_files:
         out(f"created {path}")
     out(f"Registered project '{result.project.name}' at {result.project.root_path}")
+    allowed = ", ".join(CommandPolicy.render(c) for c in result.config.commands.allow)
+    out(f"  commands    {allowed or 'none allowed (the provider cannot run tests)'}")
     out(f"  config      {result.project.config_path} ({result.config.fingerprint[:19]}…)")
     out(
         f"  skills      {len(result.config.skills)} project file(s); "
@@ -166,6 +169,7 @@ def cmd_project_show(app: App, args: argparse.Namespace) -> int:
             ("model alias", config.default_model or "CLI default"),
             ("timeout", f"{config.timeout_seconds}s"),
             ("max turns", str(config.max_turns or "CLI default")),
+            ("effort", config.effort or "CLI default"),
             ("permission profile", config.permission_profile),
             ("eval_dir", config.eval_dir),
             ("commands.allow", allow or "(none)"),
@@ -202,11 +206,65 @@ def cmd_run(app: App, args: argparse.Namespace) -> int:
             model=args.model,
             timeout_seconds=args.timeout,
             max_turns=args.max_turns,
+            permission_profile=args.profile,
+            provider=args.provider,
+            effort=args.effort,
         ),
     )
     out()
     _print_outcome(app, task)
     return _RUN_EXIT.get(task.status, EXIT_ERROR)
+
+
+def cmd_review(app: App, args: argparse.Namespace) -> int:
+    tasks = app.tasks()
+    outcome = run_review(
+        tasks,
+        app.review(),
+        app.paths,
+        args.task_id,
+        model=args.model,
+        provider=args.provider,
+        effort=args.effort,
+        focus=args.focus,
+        timeout_seconds=args.timeout,
+        keep_worktree=args.keep_worktree,
+    )
+    review = outcome.task
+    out()
+    if not outcome.completed:
+        _print_outcome(app, review)
+        return _RUN_EXIT.get(review.status, EXIT_ERROR)
+    out(
+        f"Review {review.id} of task {args.task_id} "
+        f"({_model_label(review)}, {review.duration_seconds:.1f}s):\n"
+    )
+    out(outcome.text or "(the reviewer returned no text)")
+    if outcome.diff_truncated:
+        out("\nNote: the diff was too large and was truncated in the review prompt.")
+    out(
+        "\nA model review is an extra opinion, not a verdict: confirm findings with tests "
+        f"before acting. Record what you concluded with `tua good|bad {args.task_id}`."
+    )
+    return EXIT_OK
+
+
+def _model_label(task: Task) -> str:
+    """Reported models when the CLI supplies them, otherwise the requested alias, labelled."""
+    if task.actual_models:
+        return ", ".join(task.actual_models)
+    if task.model_alias:
+        return f"{task.model_alias} (requested; {task.provider} does not report the model used)"
+    return "unknown model"
+
+
+def _cost(task: Task) -> str | None:
+    if task.cost_usd is None:
+        return None
+    return (
+        f"${task.cost_usd:.4f} API-equivalent estimate from Claude Code "
+        "(subscriptions use plan quota and are not billed per token)"
+    )
 
 
 def _print_outcome(app: App, task: Task) -> None:
@@ -216,6 +274,9 @@ def _print_outcome(app: App, task: Task) -> None:
         out(f"  error: {task.error_type}: {task.error_message}")
     if task.permission_denials:
         out(f"  permission denials: {task.permission_denials} (see `tua status {task.id}`)")
+    cost = _cost(task)
+    if cost:
+        out(f"  usage: {cost}")
     if task.result_excerpt:
         text = task.result_excerpt
         out("  result: " + (text if len(text) <= 600 else text[:600] + " …"))
@@ -251,6 +312,8 @@ def cmd_status(app: App, args: argparse.Namespace) -> int:
     out(f"{'ID':<22} {'PROJECT':<16} {'STATUS':<10} {'CREATED':<20} PROMPT")
     for task in tasks:
         prompt = " ".join(task.prompt.split())
+        if task.review_of:
+            prompt = f"[review of {task.review_of}]"
         prompt = prompt if len(prompt) <= 50 else prompt[:49] + "…"
         created = task.created_at.replace("T", " ")[:19]
         name = names.get(task.project_id, "?")[:16]
@@ -272,6 +335,7 @@ def _print_task_detail(app: App, service: TaskService, task: Task) -> None:
         ("provider", f"{task.provider} {task.cli_version or 'unknown version'}"),
         ("model alias", task.model_alias or "CLI default"),
         ("reported models", ", ".join(task.actual_models) if task.actual_models else "unknown"),
+        ("effort", task.effort or "CLI default"),
         ("permission profile", task.permission_profile),
         ("source_skill_hash", task.source_skill_hash or "unknown"),
         ("compiled_skill_hash", task.compiled_skill_hash or "unknown"),
@@ -287,13 +351,21 @@ def _print_task_detail(app: App, service: TaskService, task: Task) -> None:
         rows.append(("permission denials", str(task.permission_denials)))
     if task.num_turns is not None:
         rows.append(("turns", str(task.num_turns)))
-    if task.cost_usd is not None:
-        rows.append(("cost (reported by CLI)", f"${task.cost_usd:.4f}"))
+    cost = _cost(task)
+    if cost:
+        rows.append(("cost", cost))
+    if task.review_of:
+        rows.append(("review of", task.review_of))
     if task.session_id:
         rows.append(
             (
                 "session",
-                f"{task.session_id} (inspect: cd {worktree} && claude --resume {task.session_id})",
+                f"{task.session_id} (inspect: cd {worktree} && "
+                + (
+                    f"claude --resume {task.session_id})"
+                    if task.provider == "claude-code"
+                    else f"codex resume {task.session_id})"
+                ),
             )
         )
     if task.stdout_path:
@@ -318,6 +390,18 @@ def _print_task_detail(app: App, service: TaskService, task: Task) -> None:
     _print_rows(rows)
     if task.result_excerpt:
         out("\nResult (redacted excerpt):\n" + task.result_excerpt)
+        full = app.paths.task_dir(task.id) / "result.md"
+        if full.exists():
+            out(f"(full result: {full})")
+    reviews = app.db.list_reviews(task.id)
+    if reviews:
+        out("\nReviews:")
+        for review in reviews:
+            models = _model_label(review)
+            state = review.status.value
+            if review.status is TaskStatus.DISCARDED and review.error_type is None:
+                state = "completed"  # finished; only its read-only worktree copy was removed
+            out(f"  {review.id}  {state}  {models}  (tua status {review.id})")
     out("\nEvents:")
     for event in app.db.list_events(task.id):
         change = f"{event.from_status or '-'} -> {event.to_status}" if event.to_status else ""
@@ -411,6 +495,17 @@ def _positive(value: str) -> int:
     return number
 
 
+def _provider_options(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--provider",
+        choices=list(SUPPORTED_PROVIDERS),
+        help="provider CLI for this task (default: the project's default_provider)",
+    )
+    p.add_argument(
+        "--effort", help="reasoning effort, e.g. low, medium, high (validated per provider)"
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tua",
@@ -429,6 +524,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = psub.add_parser("init", help="create .tua/project.yaml if missing and register the project")
     p.add_argument("path", help="repository root")
     p.add_argument("--name", required=True, help="project name (lowercase, digits, . _ -)")
+    p.add_argument(
+        "--allow",
+        action="append",
+        metavar="COMMAND",
+        help="command prefix the provider may run, e.g. 'python -m pytest' (repeatable; "
+        "only when creating the config)",
+    )
     p.set_defaults(handler=cmd_project_init)
     p = psub.add_parser("list", help="list registered projects")
     p.set_defaults(handler=cmd_project_list)
@@ -442,7 +544,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", help="model alias for this task (overrides default_model)")
     p.add_argument("--timeout", type=_positive, help="wall-clock timeout in seconds")
     p.add_argument("--max-turns", type=_positive, help="passed to `claude --max-turns`")
+    p.add_argument(
+        "--profile",
+        choices=["safe", "read-only"],
+        help="permission profile for this task; may only narrow the project's profile",
+    )
+    _provider_options(p)
     p.set_defaults(handler=cmd_run)
+
+    p = sub.add_parser(
+        "review", help="have a model review a task's changes, as a recorded read-only task"
+    )
+    p.add_argument("task_id", help="the task whose changes to review")
+    p.add_argument("--model", help="reviewer model (for example sonnet, or gpt-6-luna)")
+    _provider_options(p)
+    p.add_argument("--focus", help="extra instructions, for example 'input validation'")
+    p.add_argument("--timeout", type=_positive, help="wall-clock timeout in seconds")
+    p.add_argument(
+        "--keep-worktree", action="store_true", help="keep the review's read-only worktree copy"
+    )
+    p.set_defaults(handler=cmd_review)
 
     p = sub.add_parser("status", help="list tasks, or show one task in detail")
     p.add_argument("task_id", nargs="?")

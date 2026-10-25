@@ -187,13 +187,13 @@ def test_timeout_keeps_worktree_and_kills_provider(
 def test_duplicate_task_id_is_retried(
     db: Database, paths: TuaPaths, project: str, fake_claude: FakeClaude
 ) -> None:
-    from tua.adapters.claude_code import ClaudeCodeAdapter
+    from tua.adapters import create_adapter
 
     ids = iter(["20260101-000000-aaaa", "20260101-000000-aaaa", "20260101-000000-bbbb"])
     service = TaskService(
         db,
         paths,
-        lambda: ClaudeCodeAdapter(scratch_dir=paths.tmp_dir),
+        lambda provider: create_adapter(provider, scratch_dir=paths.tmp_dir),
         id_factory=lambda: next(ids),
     )
     first = service.run(project, RunOptions(prompt="one"))
@@ -209,13 +209,13 @@ def test_failed_worktree_creation_is_recorded(
     repo: Path,
     fake_claude: FakeClaude,
 ) -> None:
-    from tua.adapters.claude_code import ClaudeCodeAdapter
+    from tua.adapters import create_adapter
 
     git(repo, "branch", "tua/20260101-000000-cccc")  # collides with the task branch
     service = TaskService(
         db,
         paths,
-        lambda: ClaudeCodeAdapter(scratch_dir=paths.tmp_dir),
+        lambda provider: create_adapter(provider, scratch_dir=paths.tmp_dir),
         id_factory=lambda: "20260101-000000-cccc",
     )
     task = service.run(project, RunOptions(prompt="x"))

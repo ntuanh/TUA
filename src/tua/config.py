@@ -22,7 +22,13 @@ from tua.paths import TuaPaths, resolve_within
 CONFIG_SCHEMA_VERSION = 1
 PROJECT_CONFIG_RELPATH = Path(".tua") / "project.yaml"
 MAX_CONFIG_BYTES = 256 * 1024
-SUPPORTED_PROVIDERS = ("claude-code",)
+SUPPORTED_PROVIDERS = ("claude-code", "codex")
+# Reasoning effort levels each provider accepts (Claude `--effort`, Codex
+# `model_reasoning_effort`). Codex does not validate the value itself, so TUA does.
+EFFORT_LEVELS: dict[str, tuple[str, ...]] = {
+    "claude-code": ("low", "medium", "high", "xhigh", "max"),
+    "codex": ("minimal", "low", "medium", "high", "xhigh"),
+}
 PERMISSION_PROFILES = ("safe", "read-only")
 DEFAULT_TIMEOUT_SECONDS = 1800
 MAX_TIMEOUT_SECONDS = 24 * 3600
@@ -73,6 +79,7 @@ class ProjectConfig:
     default_model: str | None
     timeout_seconds: int
     max_turns: int | None
+    effort: str | None
     permission_profile: str
     skills: tuple[str, ...]
     eval_dir: str
@@ -266,6 +273,7 @@ _PROJECT_KEYS = {
     "default_model",
     "timeout_seconds",
     "max_turns",
+    "effort",
     "permission_profile",
     "skills",
     "eval_dir",
@@ -308,6 +316,11 @@ def parse_project_config(data: bytes, *, root: Path, config_path: Path) -> Proje
         "timeout_seconds", minimum=1, maximum=MAX_TIMEOUT_SECONDS, default=DEFAULT_TIMEOUT_SECONDS
     )
     max_turns = fields.opt_int("max_turns", minimum=1, maximum=MAX_TURNS_LIMIT)
+    effort = fields.opt_str("effort")
+    if effort is not None and effort not in EFFORT_LEVELS[provider]:
+        raise fields.error(
+            "effort", f"must be one of {', '.join(EFFORT_LEVELS[provider])} for {provider}"
+        )
 
     profile = fields.str_("permission_profile", default="safe")
     if profile not in PERMISSION_PROFILES:
@@ -339,6 +352,7 @@ def parse_project_config(data: bytes, *, root: Path, config_path: Path) -> Proje
         default_model=model,
         timeout_seconds=timeout,
         max_turns=max_turns,
+        effort=effort,
         permission_profile=profile,
         skills=tuple(skills),
         eval_dir=eval_dir,
@@ -377,3 +391,19 @@ def load_global_config(paths: TuaPaths) -> GlobalConfig:
             raise fields.error("skills", f"lists {entry!r} more than once")
         skills.append(normalized)
     return GlobalConfig(config_dir=paths.config_dir, skills=tuple(skills), path=path)
+
+
+def check_effort(provider: str, effort: str | None) -> str | None:
+    """Validate a per-task effort level for ``provider``."""
+    if effort is not None and effort not in EFFORT_LEVELS.get(provider, ()):
+        levels = ", ".join(EFFORT_LEVELS.get(provider, ()))
+        raise ConfigError(f"effort {effort!r} is not valid for {provider}; use one of: {levels}")
+    return effort
+
+
+def check_provider(provider: str) -> str:
+    if provider not in SUPPORTED_PROVIDERS:
+        raise ConfigError(
+            f"unknown provider {provider!r}", hint=f"Use one of: {', '.join(SUPPORTED_PROVIDERS)}."
+        )
+    return provider

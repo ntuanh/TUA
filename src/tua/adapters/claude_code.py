@@ -179,6 +179,9 @@ class ClaudeCodeAdapter:
         value = data.get("loggedIn") if isinstance(data, dict) else None
         return value if isinstance(value, bool) else None
 
+    def login_state(self, cli_path: str) -> bool | None:
+        return self.auth_logged_in(cli_path)
+
     def _quick(self, argv: list[str]) -> ProcessOutcome:
         self.scratch_dir.mkdir(parents=True, exist_ok=True)
         return run_process(
@@ -193,6 +196,11 @@ class ClaudeCodeAdapter:
     # ----------------------------------------------------------------- invocation
 
     def build_argv(self, request: AdapterRequest, cli_path: str) -> list[str]:
+        if request.settings_path is None:
+            raise ProviderError(
+                "Claude Code needs a generated permission settings file",
+                error_type=ErrorType.INTERNAL_ERROR,
+            )
         argv = [
             cli_path,
             "--print",
@@ -214,6 +222,8 @@ class ClaudeCodeAdapter:
             argv += ["--model", request.model]
         if request.max_turns:
             argv += ["--max-turns", str(request.max_turns)]
+        if request.effort:
+            argv += ["--effort", request.effort]
         if request.cli_deny:
             # Variadic option: keep it last so it cannot swallow other arguments.
             argv += ["--disallowedTools", *request.cli_deny]
@@ -320,6 +330,7 @@ def normalize(
         session_id = payload.get("session_id")
         fields = {
             "result_excerpt": excerpt(result_text),
+            "result_text": redact(result_text) if result_text else None,
             "actual_models": _models(payload),
             "session_id": session_id if isinstance(session_id, str) else None,
             "num_turns": num_turns
