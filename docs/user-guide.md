@@ -12,6 +12,51 @@ If you see `tua: command not found`, run `pipx ensurepath`, then open a new term
 
 ---
 
+## 0. The easy way: just type `tua`
+
+Open a terminal **in your project folder** and type `tua`:
+
+```bash
+cd ~/code/myapp
+tua
+```
+
+**The first time**, TUA asks a few yes/no questions. Press Enter to accept the suggested
+answer:
+
+1. `Set up TUA for this project now? [Y/n]`: press Enter.
+2. `Let the AI run "python -m pytest" to test its own work? [Y/n]`: press Enter. This appears
+   only if TUA recognizes your test tool.
+3. `Save TUA's settings in Git? [y/N]`: press Enter to keep them only on this laptop.
+
+**Every time after that**, `tua` goes straight to:
+
+```text
+What should the AI do? (Enter on an empty line to quit)
+>
+```
+
+Type your request and press Enter. When the AI is done, you see what it changed and choose:
+
+| Key | What it does |
+|---|---|
+| `m` | merge: keep the change (one local commit; nothing is pushed) |
+| `d` | show the full diff |
+| `r` | ask another model to review the change |
+| `x` | discard the change |
+| Enter | keep it for later (`tua merge <ID>` or `tua discard <ID>`) |
+
+Tips for typing a request:
+- Be specific: what to change, where, and how to check it ("add a test", "run the tests").
+- End a line with `\` to continue on the next line.
+- For a long request, write it in a file and type `@path/to/file`.
+- To quit, press Enter on an empty line (or Ctrl+D).
+
+The sections below describe the same steps as separate commands, which give you more options
+(another model, Codex, timeouts).
+
+---
+
 ## 1. Use TUA in a new folder
 
 TUA works on **Git repositories**. Pick the folder you want to work on, for example `~/code/myapp`.

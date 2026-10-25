@@ -23,6 +23,11 @@ All notable changes to this project are documented here. The format follows
 - `tua review --provider` enables cross-provider reviews, for example Codex reviewing a Claude
   task.
 - `tua doctor` also checks Codex when it is installed.
+- Interactive mode: `tua` with no arguments inside a project folder.
+  - First use offers setup with yes/no questions: register the project, allow a detected test
+    command, keep `.tua/` local or commit only that folder.
+  - It then loops: prompt, run, then merge / diff / review / discard / keep.
+  - Settings that came with a repository, and changed settings, must be approved first.
 
 ### Added
 

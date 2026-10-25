@@ -55,6 +55,23 @@ Alternatively, run `pipx install .` from the clone.
 
 ## Quick start
 
+The easiest way is to go to your project folder (any Git repository) and type `tua`:
+
+```text
+~/code/myapp$ tua
+First time here: TUA isn't set up for "myapp" yet.
+Set up TUA for this project now? [Y/n]
+✓ TUA is ready for "myapp".
+
+What should the AI do? > Add a --verbose flag to the CLI and a test for it
+✓ Done in 41s.
+[m] merge  [d] diff  [r] review  [x] discard  [Enter] keep for later >
+```
+
+The setup questions appear only the first time. After that, `tua` goes straight to the prompt.
+
+The same steps as individual commands, for scripts or more control:
+
 ```bash
 tua doctor                                 # check git, claude, login, and local state
 tua project init ~/code/myrepo --name myrepo
@@ -75,6 +92,7 @@ them local.
 
 | Command | Purpose |
 |---|---|
+| `tua` | Interactive mode in the current project: setup on first use, then prompt, run, review, merge |
 | `tua --version`, `tua --help` | Version and help (`tua <command> --help` for each command) |
 | `tua doctor` | Diagnose Python, Git, Claude Code (version, flags, login), local state, projects |
 | `tua project init <PATH> --name <NAME> [--allow CMD ...]` | Create `.tua/project.yaml` if missing (optionally allowing commands such as tests), validate, register |
