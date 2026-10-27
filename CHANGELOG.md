@@ -10,6 +10,8 @@ All notable changes to this project are documented here. The format follows
 
 - GitHub Actions CI workflow on Python 3.10 to 3.13: format check, lint, type check, tests,
   build, and a smoke test of the built wheel.
+- `tua status <ID>` shows a "read scope" line for Codex tasks: Codex's sandbox does not
+  restrict reads.
 
 ### Fixed
 

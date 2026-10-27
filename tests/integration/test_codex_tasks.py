@@ -8,6 +8,7 @@ import pytest
 
 from tests.conftest import FakeClaude, FakeCodex, git
 from tests.integration.test_review import ScriptedConfirmer
+from tua.cli import main
 from tua.db import Database
 from tua.errors import ConfigError
 from tua.models import ErrorType, TaskStatus
@@ -201,3 +202,22 @@ def test_codex_read_warning_is_shown(
     )
     service.run(project, RunOptions(prompt="x", provider="codex"))
     assert any("CAN read any file" in note for note in notes)
+
+
+def test_status_shows_codex_read_scope(
+    service: TaskService,
+    project: str,
+    fake_claude: FakeClaude,
+    fake_codex: FakeCodex,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    codex = service.run(project, RunOptions(prompt="Create hello.txt", provider="codex"))
+    claude = service.run(project, RunOptions(prompt="Create hello.txt"))
+    capsys.readouterr()
+    # The run-time note is printed once; `tua status` must keep saying it afterwards.
+    assert main(["status", codex.id]) == 0
+    output = capsys.readouterr().out
+    assert "read scope" in output
+    assert "any file your user can read" in output
+    assert main(["status", claude.id]) == 0
+    assert "read scope" not in capsys.readouterr().out

@@ -357,6 +357,9 @@ def _print_task_detail(app: App, service: TaskService, task: Task) -> None:
         ("duration", f"{task.duration_seconds:.1f}s" if task.duration_seconds is not None else "-"),
         ("exit code", "-" if task.exit_code is None else str(task.exit_code)),
     ]
+    if task.provider == "codex":
+        # Codex's sandbox limits writes and network access, not reads (adapters/codex.py).
+        rows.append(("read scope", "any file your user can read; what it reads goes to Codex"))
     if task.error_type:
         rows.append(("error", f"{task.error_type}: {task.error_message}"))
     if task.permission_denials is not None:
