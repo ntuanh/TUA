@@ -11,9 +11,11 @@ import pytest
 
 from tests.conftest import FakeClaude, git
 from tua.db import Database
+from tua.errors import TuaError
 from tua.interactive import Session, project_name_for, suggest_test_command
 from tua.models import TaskStatus
 from tua.paths import TuaPaths
+from tua.review import ReviewService
 from tua.tasks import TaskService
 
 
@@ -213,6 +215,136 @@ def test_failed_task_menu_has_no_merge(
     assert "✗ failed" in script.text
     assert "Please choose one of the letters shown." in script.text
     assert "[m] merge" not in script.questions[-2]
+
+
+def test_review_that_changes_files_is_kept_and_reported(
+    db: Database, paths: TuaPaths, service: TaskService, repo: Path, fake_claude: FakeClaude
+) -> None:
+    assert session(db, paths, service, Script("", "", "")).run(repo) == 0
+
+    def answers() -> Iterator[str]:
+        yield "Create hello.txt"
+        fake_claude.configure(mode="success", write_files={}, result="Looks fine.")
+        yield "r"  # a clean review: removed, no warning
+        # A provider that writes despite the read-only profile (or whose sandbox failed).
+        fake_claude.configure(mode="success", write_files={"pwned.txt": "x\n"}, result="Hmm.")
+        yield "r"
+        yield ""  # keep the task for later
+        yield ""  # quit
+
+    script = Script()
+    script.answers = answers()
+    assert session(db, paths, service, script).run(repo) == 0
+    (task,) = [t for t in db.list_tasks() if not t.review_of]
+    reviews = {r.status: r for r in db.list_reviews(task.id)}
+    assert set(reviews) == {TaskStatus.DISCARDED, TaskStatus.COMPLETED}
+    kept = reviews[TaskStatus.COMPLETED]
+    worktree = Path(kept.worktree_path)
+
+    # Nothing is merged or deleted: the changes stay in the review's worktree.
+    assert (worktree / "pwned.txt").exists()
+    assert task.status is TaskStatus.COMPLETED
+    assert git(repo, "status", "--porcelain") == ""
+    assert not (repo / "pwned.txt").exists()
+    # Only the review that changed files is reported, with where and what to do next.
+    assert script.text.count("changed files in its worktree") == 1
+    assert "the read-only review changed files in its worktree: pwned.txt" in script.text
+    assert str(worktree) in script.text
+    assert f"tua diff {kept.id}" in script.text
+    assert f"tua discard {kept.id}" in script.text
+    assert reviews[TaskStatus.DISCARDED].id not in script.text
+
+
+def test_review_cleanup_failure_is_reported(
+    db: Database,
+    paths: TuaPaths,
+    service: TaskService,
+    repo: Path,
+    fake_claude: FakeClaude,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert session(db, paths, service, Script("", "", "")).run(repo) == 0
+
+    def failing_discard(self: ReviewService, task_id: str, **kwargs: object) -> None:
+        raise TuaError("simulated cleanup failure")
+
+    def answers() -> Iterator[str]:
+        yield "Create hello.txt"
+        fake_claude.configure(mode="success", write_files={}, result="Looks fine.")
+        monkeypatch.setattr(ReviewService, "discard", failing_discard)
+        yield "r"
+        yield ""
+        yield ""
+
+    script = Script()
+    script.answers = answers()
+    assert session(db, paths, service, script).run(repo) == 0
+    (task,) = [t for t in db.list_tasks() if not t.review_of]
+    (review,) = db.list_reviews(task.id)
+    worktree = Path(review.worktree_path)
+
+    assert review.status is TaskStatus.COMPLETED
+    assert worktree.is_dir()
+    assert "could not remove the review's worktree copy: simulated cleanup failure" in script.text
+    assert str(worktree) in script.text
+    assert f"tua discard {review.id}" in script.text
+    assert "changed files" not in script.text
+
+
+def test_failed_review_is_reported_and_kept(
+    db: Database, paths: TuaPaths, service: TaskService, repo: Path, fake_claude: FakeClaude
+) -> None:
+    assert session(db, paths, service, Script("", "", "")).run(repo) == 0
+
+    def answers() -> Iterator[str]:
+        yield "Create hello.txt"
+        fake_claude.configure(mode="rate_limit")
+        yield "r"
+        yield ""
+        yield ""
+
+    script = Script()
+    script.answers = answers()
+    assert session(db, paths, service, script).run(repo) == 0
+    (task,) = [t for t in db.list_tasks() if not t.review_of]
+    (review,) = db.list_reviews(task.id)
+
+    # A failed review keeps its worktree for inspection, like any failed task.
+    assert review.status is TaskStatus.FAILED
+    assert Path(review.worktree_path).is_dir()
+    assert task.status is TaskStatus.COMPLETED
+    assert git(repo, "status", "--porcelain") == ""
+    # The failure is reported, not shown as an empty review.
+    assert "(no review text)" not in script.text
+    assert "✗ failed" in script.text
+    assert "You reached your plan's limit." in script.text
+    assert review.worktree_path in script.text
+    assert f"tua discard {review.id}" in script.text
+
+
+def test_review_failing_before_its_worktree_exists_claims_no_copy(
+    db: Database, paths: TuaPaths, service: TaskService, repo: Path, fake_claude: FakeClaude
+) -> None:
+    assert session(db, paths, service, Script("", "", "")).run(repo) == 0
+
+    def answers() -> Iterator[str]:
+        yield "Create hello.txt"
+        fake_claude.configure(mode="success", logged_in=False)  # fails in the preflight
+        yield "r"
+        yield ""
+        yield ""
+
+    script = Script()
+    script.answers = answers()
+    assert session(db, paths, service, script).run(repo) == 0
+    (task,) = [t for t in db.list_tasks() if not t.review_of]
+    (review,) = db.list_reviews(task.id)
+
+    assert review.status is TaskStatus.FAILED
+    assert review.error_type == "unauthenticated"
+    assert not Path(review.worktree_path).exists()
+    assert "✗ failed" in script.text
+    assert "worktree copy was kept" not in script.text
 
 
 def test_empty_plain_folder(

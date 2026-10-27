@@ -99,7 +99,10 @@ Nothing is pushed. Interrupts are deferred during the short fast-forward and dat
    linked to the reviewed task through `review_of`, and `tua status <TASK_ID>` lists it.
    The full review text is saved as `result.md` in the review's task directory.
 4. A completed review's worktree is discarded automatically when it contains no changes
-   (`--keep-worktree` keeps it). A failed review keeps it, like any failed task.
+   (`--keep-worktree` keeps it). A failed review keeps it, like any failed task. If the
+   reviewer changed files despite the read-only profile, or the copy cannot be removed, TUA
+   keeps it and says so, with its path: inspect it with `tua diff <REVIEW_ID>` and remove it
+   with `tua discard <REVIEW_ID>`. Interactive mode reports the same.
 
 Reviewing a review, an active task, a discarded task, or a task without changes is refused.
 A model review is an extra opinion, not a verdict.

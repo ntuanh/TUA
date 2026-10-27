@@ -18,7 +18,7 @@ from tua.paths import TuaPaths
 from tua.repository import Repository, run_git
 from tua.review import ReviewService, task_diff
 from tua.tasks import RunOptions, TaskService
-from tua.worktrees import check_task_worktree, diff, snapshot_tree
+from tua.worktrees import changed_entries, check_task_worktree, diff, snapshot_tree
 
 DIFF_LIMIT = 60_000
 PROMPT_LIMIT = 10_000
@@ -57,6 +57,53 @@ class ReviewOutcome:
     completed: bool
     text: str | None
     diff_truncated: bool
+    # Files the reviewer changed in its read-only worktree copy; the copy is then kept.
+    changed_files: tuple[str, ...] = ()
+    # Why the worktree copy could not be checked or removed; it is then kept.
+    worktree_error: str | None = None
+
+
+def worktree_notice(outcome: ReviewOutcome, *, kept_on_request: bool = False) -> str | None:
+    """Why a review's worktree copy still exists and how to remove it safely."""
+    review = outcome.task
+    worktree = Path(review.worktree_path)
+    where = f"\n  worktree: {worktree}" if worktree.is_dir() else ""
+    if outcome.changed_files:
+        shown = ", ".join(outcome.changed_files[:10])
+        if len(outcome.changed_files) > 10:
+            shown += f" (and {len(outcome.changed_files) - 10} more)"
+        return (
+            f"\nWarning: the read-only review changed files in its worktree: {shown}{where}\n"
+            "A review should not change files; check that the provider respected TUA's "
+            "permissions. Nothing was merged or deleted.\n"
+            f"Inspect the changes with `tua diff {review.id}`, then remove them with "
+            f"`tua discard {review.id}`."
+        )
+    if outcome.worktree_error:
+        # With --keep-worktree only the change check ran; otherwise removal may have failed.
+        action = (
+            "check the review's worktree copy for changes"
+            if kept_on_request
+            else "remove the review's worktree copy"
+        )
+        return (
+            f"\nWarning: could not {action}: {outcome.worktree_error}"
+            f"{where}\nNothing was deleted. Remove it with `tua discard {review.id}` once "
+            "the problem is fixed."
+        )
+    if not outcome.completed:
+        if not worktree.is_dir():
+            return None  # it failed before its worktree was created
+        return (
+            f"\nThe failed review's worktree copy was kept for inspection:{where}\n"
+            f"Remove it with `tua discard {review.id}` when you are done."
+        )
+    if kept_on_request:
+        return (
+            f"\nThe review's worktree copy was kept:{where}\n"
+            f"Remove it with `tua discard {review.id}` when you are done."
+        )
+    return None
 
 
 def result_text(paths: TuaPaths, task: Task) -> str | None:
@@ -145,12 +192,27 @@ def run_review(
     )
     completed = review.status is TaskStatus.COMPLETED
     text = result_text(paths, review) if completed else None
-    if review.status is TaskStatus.COMPLETED and not keep_worktree:
+    changed: tuple[str, ...] = ()
+    worktree_error: str | None = None
+    if completed:
         # A read-only review leaves nothing to merge; remove its worktree copy, but only
-        # when it really contains no changes.
+        # when it really contains no changes. Changes mean the provider wrote despite the
+        # read-only profile: they are kept for the user to inspect.
         try:
-            if not task_diff(review, paths).has_changes:
+            review_diff = task_diff(review, paths)
+            if review_diff.tree:  # exact paths; a rename lists both its old and new path
+                entries = changed_entries(repo.root, review_diff.base, review_diff.tree)
+                changed = tuple(path for _status, _mode, path in entries)
+            if not changed and not keep_worktree:
                 review = review_service.discard(review.id, assume_yes=True, reason="review cleanup")
-        except TuaError:
+        except TuaError as exc:
+            worktree_error = exc.message
             review = tasks.get(review.id)
-    return ReviewOutcome(task=review, completed=completed, text=text, diff_truncated=truncated)
+    return ReviewOutcome(
+        task=review,
+        completed=completed,
+        text=text,
+        diff_truncated=truncated,
+        changed_files=changed,
+        worktree_error=worktree_error,
+    )

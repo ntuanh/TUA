@@ -11,6 +11,15 @@ All notable changes to this project are documented here. The format follows
 - GitHub Actions CI workflow on Python 3.10 to 3.13: format check, lint, type check, tests,
   build, and a smoke test of the built wheel.
 
+### Fixed
+
+- `tua review` and the interactive review now say when a read-only review left changed files
+  in its worktree, or when its worktree copy could not be checked or removed. They show the
+  path and how to inspect and remove it; nothing is merged or deleted automatically.
+  `tua review --keep-worktree` prints the kept path.
+- The interactive review reports a failed review (status, error, kept worktree) instead of an
+  empty review.
+
 ## [0.1.0] - 2026-10-25
 
 First tagged release.

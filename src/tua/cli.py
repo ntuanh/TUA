@@ -26,7 +26,7 @@ from tua.feedback import record_feedback
 from tua.logging_utils import LOGGER_NAME, setup_logging
 from tua.models import RETAINED_STATES, Task, TaskStatus
 from tua.paths import TuaPaths
-from tua.peer_review import run_review
+from tua.peer_review import run_review, worktree_notice
 from tua.permissions import build_plan
 from tua.projects import init_project, load_registered
 from tua.review import ReviewService, task_diff
@@ -254,6 +254,9 @@ def cmd_review(app: App, args: argparse.Namespace) -> int:
         "\nA model review is an extra opinion, not a verdict: confirm findings with tests "
         f"before acting. Record what you concluded with `tua good|bad {args.task_id}`."
     )
+    notice = worktree_notice(outcome, kept_on_request=args.keep_worktree)
+    if notice:
+        out(notice)
     return EXIT_OK
 
 

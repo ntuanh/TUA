@@ -9,6 +9,7 @@ import pytest
 
 from tests.conftest import FakeClaude, git
 from tests.integration.test_review import ScriptedConfirmer
+from tua.cli import main
 from tua.db import MIGRATIONS, SCHEMA_VERSION, Database
 from tua.errors import ConfigError, TuaError
 from tua.models import TaskStatus
@@ -159,6 +160,139 @@ def test_failed_review_is_reported_and_kept(
     assert outcome.task.error_type == "rate_limited"
     assert outcome.text is None
     assert Path(outcome.task.worktree_path).is_dir()
+
+
+def test_review_that_changes_files_is_kept_and_reported(
+    service: TaskService,
+    db: Database,
+    project: str,
+    repo: Path,
+    fake_claude: FakeClaude,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    target = service.run(project, RunOptions(prompt="Create hello.txt"))
+    # A provider that writes despite the read-only profile (or whose sandbox failed).
+    fake_claude.configure(mode="success", write_files={"pwned.txt": "x\n"}, result="Looks fine.")
+    capsys.readouterr()
+    assert main(["review", target.id]) == 0
+    output = capsys.readouterr().out
+    (review,) = db.list_reviews(target.id)
+    worktree = Path(review.worktree_path)
+
+    # Nothing is merged or deleted: the changes stay in the review's worktree.
+    assert review.status is TaskStatus.COMPLETED
+    assert (worktree / "pwned.txt").exists()
+    assert git(repo, "status", "--porcelain") == ""
+    assert not (repo / "pwned.txt").exists()
+    # The user is told what happened, where, and what to do next.
+    assert "Looks fine." in output
+    assert "the read-only review changed files in its worktree: pwned.txt" in output
+    assert str(worktree) in output
+    assert f"tua diff {review.id}" in output
+    assert f"tua discard {review.id}" in output
+
+
+def test_review_changed_files_are_listed_exactly(
+    service: TaskService,
+    project: str,
+    fake_claude: FakeClaude,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    target = service.run(project, RunOptions(prompt="Create hello.txt"))
+    fake_claude.configure(mode="success", write_files={"café notes.txt": "x\n"}, result="Ok.")
+    capsys.readouterr()
+    assert main(["review", target.id]) == 0
+    output = capsys.readouterr().out
+    # Git's quoted form ("caf\303\251 notes.txt") would hide the real file name.
+    assert "changed files in its worktree: café notes.txt\n" in output
+
+
+def test_review_cleanup_failure_is_reported(
+    service: TaskService,
+    db: Database,
+    project: str,
+    fake_claude: FakeClaude,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = service.run(project, RunOptions(prompt="Create hello.txt"))
+    fake_claude.configure(mode="success", write_files={}, result="Looks fine.")
+
+    def failing_discard(self: ReviewService, task_id: str, **kwargs: object) -> None:
+        raise TuaError("simulated cleanup failure")
+
+    monkeypatch.setattr(ReviewService, "discard", failing_discard)
+    capsys.readouterr()
+    assert main(["review", target.id]) == 0
+    output = capsys.readouterr().out
+    (review,) = db.list_reviews(target.id)
+    worktree = Path(review.worktree_path)
+
+    assert review.status is TaskStatus.COMPLETED
+    assert worktree.is_dir()
+    assert "could not remove the review's worktree copy: simulated cleanup failure" in output
+    assert str(worktree) in output
+    assert f"tua discard {review.id}" in output
+    assert "changed files" not in output
+
+
+def test_review_keep_worktree_prints_the_kept_copy(
+    service: TaskService,
+    db: Database,
+    project: str,
+    fake_claude: FakeClaude,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    target = service.run(project, RunOptions(prompt="Create hello.txt"))
+    fake_claude.configure(mode="success", write_files={}, result="Looks fine.")
+    capsys.readouterr()
+    assert main(["review", target.id, "--keep-worktree"]) == 0
+    output = capsys.readouterr().out
+    (review,) = db.list_reviews(target.id)
+    assert review.status is TaskStatus.COMPLETED
+    assert f"The review's worktree copy was kept:\n  worktree: {review.worktree_path}" in output
+    assert f"tua discard {review.id}" in output
+    assert "changed files" not in output
+
+    # Files the reviewer changed are reported with --keep-worktree too.
+    fake_claude.configure(mode="success", write_files={"pwned.txt": "x\n"}, result="Looks fine.")
+    assert main(["review", target.id, "--keep-worktree"]) == 0
+    output = capsys.readouterr().out
+    second = next(r for r in db.list_reviews(target.id) if r.id != review.id)
+    assert (Path(second.worktree_path) / "pwned.txt").exists()
+    assert "the read-only review changed files in its worktree: pwned.txt" in output
+    assert str(second.worktree_path) in output
+
+
+def test_review_keep_worktree_reports_a_failed_change_check(
+    service: TaskService,
+    db: Database,
+    project: str,
+    fake_claude: FakeClaude,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = service.run(project, RunOptions(prompt="Create hello.txt"))
+    fake_claude.configure(mode="success", write_files={}, result="Looks fine.")
+
+    def failing_diff(*args: object, **kwargs: object) -> None:
+        raise TuaError("simulated check failure")
+
+    monkeypatch.setattr("tua.peer_review.task_diff", failing_diff)
+    capsys.readouterr()
+    assert main(["review", target.id, "--keep-worktree"]) == 0
+    output = capsys.readouterr().out
+    (review,) = db.list_reviews(target.id)
+
+    # Nothing was removed (the user asked to keep it), so the message must not say so.
+    assert review.status is TaskStatus.COMPLETED
+    assert Path(review.worktree_path).is_dir()
+    assert "could not check the review's worktree copy for changes: simulated check failure" in (
+        output
+    )
+    assert "could not remove" not in output
+    assert review.worktree_path in output
+    assert f"tua discard {review.id}" in output
 
 
 def test_project_init_allow(db: Database, paths: TuaPaths, repo: Path) -> None:

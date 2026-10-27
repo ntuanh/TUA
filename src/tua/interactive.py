@@ -29,7 +29,7 @@ from tua.gitsetup import (
 )
 from tua.models import Project, Task, TaskStatus
 from tua.paths import TuaPaths
-from tua.peer_review import run_review
+from tua.peer_review import run_review, worktree_notice
 from tua.projects import init_project, load_registered
 from tua.repository import Repository, run_git
 from tua.review import ReviewService, task_diff
@@ -479,8 +479,14 @@ class Session:
             elif choice == "r" and completed:
                 try:
                     outcome = run_review(self.tasks, self.review, self.paths, task.id)
-                    self.say("\nReview:\n" + (outcome.text or "(no review text)"))
-                    self.say("A review is an extra opinion; check findings with tests.")
+                    if outcome.completed:
+                        self.say("\nReview:\n" + (outcome.text or "(no review text)"))
+                        self.say("A review is an extra opinion; check findings with tests.")
+                    else:
+                        self.summarize(outcome.task)
+                    notice = worktree_notice(outcome)
+                    if notice:
+                        self.say(notice)
                 except TuaError as exc:
                     self.say(f"Review failed: {exc.message}")
             elif choice == "x":
